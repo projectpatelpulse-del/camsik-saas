@@ -53,7 +53,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       meta: { sourceTenantId: source.id, sourceSlug: source.slug },
     });
 
-    const provisioning = await runProvisioning(copy);
+    const provisioning = await runProvisioning(copy, undefined, { actorEmail: auth.actor.email });
     return ok({
       message: `Client duplicated as '${newName}'`,
       client: await getTenantBySlugOrId(copy.id),

@@ -77,6 +77,7 @@ before(async () => {
   H.domainVerify = (await import('../app/api/domains/[domain]/verify/route')).POST as Handler;
   H.buildsPost = (await import('../app/api/builds/route')).POST as Handler;
   H.buildsGet = (await import('../app/api/builds/route')).GET as Handler;
+  H.overview = (await import('../app/api/overview/route')).GET as Handler;
 
   ({ getTenantDatabase } = await import('../lib/tenantDb'));
   ({ getClientPromise } = await import('../lib/mongodb'));
@@ -301,6 +302,34 @@ test('builds: entitlement enforced; a queued job never claims an artifact', asyn
 
   const bogusPanel = await call(H.buildsPost, { method: 'POST', body: { tenantId: acmeId, panelType: 'root_shell' } });
   assert.equal(bogusPanel.status, 400);
+});
+
+test('overview: requires a session; every figure matches the stored records', async () => {
+  const anon = await call(H.overview, { cookie: null });
+  assert.equal(anon.status, 401, 'overview is closed without a session');
+
+  const out = await call(H.overview);
+  assert.equal(out.status, 200);
+  const s = out.json.stats;
+
+  const list = await call(H.clientsGet);
+  const clients = list.json.clients as any[];
+  assert.equal(s.clients.total, clients.length, 'client total comes from the tenants collection');
+  const byStatus = (st: string) => clients.filter((c) => c.status === st).length;
+  assert.equal(s.clients.active, byStatus('active'));
+  assert.equal(s.clients.suspended, byStatus('suspended'));
+  assert.equal(s.databases.provisioned, clients.filter((c) => c.dbProvisioned).length);
+  assert.equal(s.databases.pending, clients.filter((c) => !c.dbProvisioned).length);
+
+  const builds = (await call(H.buildsGet)).json.builds as any[];
+  const androidJobs = builds.filter((b) => b.platform === 'android');
+  assert.equal(s.builds.android.total, androidJobs.length, 'android build count comes from build_jobs');
+  assert.equal(s.builds.android.queued, androidJobs.filter((b) => b.status === 'queued').length);
+  assert.equal(s.builds.android.completed, 0, 'no build worker exists, so nothing is completed');
+
+  assert.equal(s.deployments.failed, null, 'deployments are reported as untracked, not as zero');
+  assert.equal(s.domains.sslActive, null, 'SSL is reported as untracked until issuance exists');
+  assert.ok(Array.isArray(s.recentActivity) && s.recentActivity.length > 0, 'activity feed comes from the audit log');
 });
 
 test('audit log records the real acting admin for sensitive actions', async () => {

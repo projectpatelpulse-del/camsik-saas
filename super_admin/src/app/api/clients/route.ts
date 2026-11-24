@@ -64,7 +64,7 @@ export async function POST(request: Request) {
 
     let provisioning = null;
     if (body.autoProvision !== false) {
-      provisioning = await runProvisioning(tenant, adminDetails);
+      provisioning = await runProvisioning(tenant, adminDetails, { actorEmail: auth.actor.email });
       await recordAudit({
         action: provisioning.success ? 'tenant.provision' : 'tenant.provision_failed',
         actor: auth.actor,

@@ -19,6 +19,8 @@ import {
   Globe,
   Loader2,
   Check,
+  Upload,
+  RefreshCw,
 } from 'lucide-react';
 import { THEMES_REGISTRY } from '@/lib/themesRegistry';
 
@@ -32,6 +34,15 @@ export default function TenantCreationWizard({ isOpen, onClose, onSuccess }: Wiz
   const [currentStep, setCurrentStep] = useState<1 | 2 | 3 | 4 | 5>(1);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Brand assets and the real provisioning job
+  const [logoFile, setLogoFile] = useState<File | null>(null);
+  const [faviconFile, setFaviconFile] = useState<File | null>(null);
+  const [assetError, setAssetError] = useState<string | null>(null);
+  const [tenantId, setTenantId] = useState<string | null>(null);
+  const [uploadedKinds, setUploadedKinds] = useState<string[]>([]);
+  const [job, setJob] = useState<any>(null);
+  const [inviteToken, setInviteToken] = useState<string | null>(null);
 
   // Real-time Provisioning Progress States
   const [provisionProgress, setProvisionProgress] = useState<{
@@ -137,79 +148,121 @@ export default function TenantCreationWizard({ isOpen, onClose, onSuccess }: Wiz
     setLoading(true);
     setError(null);
     setCurrentStep(5);
+    setProvisionProgress({ step: 1, text: 'Starting...', completed: false, failed: false });
 
     try {
-      setProvisionProgress({ step: 1, text: 'Registering tenant in SaaS master control plane...', completed: false, failed: false });
-      await new Promise((r) => setTimeout(r, 600));
-
-      setProvisionProgress({ step: 2, text: `Provisioning isolated database '${dbConfig.dbName || `casmik_tenant_${businessData.slug}`}'...`, completed: false, failed: false });
-      await new Promise((r) => setTimeout(r, 600));
-
-      setProvisionProgress({ step: 3, text: 'Seeding catalog, 45-point diagnostics & RBAC roles...', completed: false, failed: false });
-
-      const payload = {
-        name: businessData.name,
-        slug: businessData.slug,
-        dbName: dbConfig.dbName || `casmik_tenant_${businessData.slug.replace(/-/g, '_')}`,
-        templateId: selectedThemeId,
-        status: 'active',
-        branding: {
-          brandName: businessData.brandName || businessData.name,
-          tagline: 'Instant Cash for Used Electronics at Your Doorstep',
-          logoUrl: '/images/default-logo.svg',
-          primaryColor: customColors.primary,
-          secondaryColor: customColors.secondary,
-          accentColor: customColors.accent,
-          supportEmail: businessData.companyEmail || adminData.email,
-          supportPhone: businessData.supportPhone,
-          currency: businessData.currency,
-          currencySymbol: businessData.currencySymbol,
-          timeZone: businessData.timeZone,
-          country: businessData.country,
-        },
-        features: {
-          buyback: true,
-          refurbished: true,
-          rentals: false,
-          repairs: true,
-          exchange: true,
-        },
-        subscription: {
-          plan: 'growth',
-          status: 'active',
-          validUntil: new Date(Date.now() + 365 * 86400000).toISOString(),
-          maxOrdersPerMonth: 2500,
-          customDomainEnabled: true,
-          priceMonthly: 7999,
-        },
-        // The owner always sets their own password through a single-use invite. The control plane never
-        // sets or sees client passwords.
-        adminEmail: adminData.email || businessData.companyEmail,
-        adminName: adminData.name || `${businessData.name} Admin`,
-        autoProvision: true,
-      };
-
-      const res = await fetch('/api/clients', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-
-      const data = await res.json();
-      if (!data.success) {
-        throw new Error(data.message || 'Provisioning failed');
+      // 1. Tenant record. Created once; a retry reuses it instead of creating a duplicate.
+      let id = tenantId;
+      if (!id) {
+        setProvisionProgress({ step: 1, text: 'Creating tenant record...', completed: false, failed: false });
+        const res = await fetch('/api/clients', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(buildPayload()),
+        });
+        const data = await res.json();
+        if (!data.success) throw new Error(data.message || 'Could not create the tenant record');
+        id = data.client.id as string;
+        setTenantId(id);
       }
 
-      setProvisionProgress({ step: 4, text: 'Tenant ecosystem provisioned successfully!', completed: true, failed: false });
-      setTimeout(() => {
-        onSuccess();
-      }, 1500);
+      // 2. Brand assets. Each kind is uploaded once; a retry skips what is already stored.
+      for (const [kind, file] of [['logo', logoFile], ['favicon', faviconFile]] as const) {
+        if (!file || uploadedKinds.includes(kind)) continue;
+        setProvisionProgress({ step: 2, text: `Uploading ${kind}...`, completed: false, failed: false });
+        const form = new FormData();
+        form.append('kind', kind);
+        form.append('file', file);
+        const r = await fetch(`/api/clients/${id}/assets`, { method: 'POST', body: form });
+        const d = await r.json();
+        if (!d.success) throw new Error(`${kind} was rejected: ${d.message}`);
+        setUploadedKinds((prev) => [...prev, kind]);
+      }
+
+      // 3. Provisioning job. Creating it runs nothing; the run below does the work.
+      setProvisionProgress({ step: 3, text: 'Creating provisioning job...', completed: false, failed: false });
+      const jr = await fetch('/api/provisioning-jobs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tenantId: id,
+          adminEmail: adminData.email || businessData.companyEmail,
+          adminName: adminData.name || `${businessData.name} Admin`,
+        }),
+      });
+      const jd = await jr.json();
+      if (!jd.success) throw new Error(jd.message || 'Could not create the provisioning job');
+      if (jd.inviteToken) setInviteToken(jd.inviteToken);
+      const jobId = jd.job.id as string;
+      setJob(jd.job);
+
+      // 4. Run, while polling the job for live step status.
+      const poll = setInterval(async () => {
+        try {
+          const g = await fetch(`/api/provisioning-jobs/${jobId}`);
+          const gd = await g.json();
+          if (gd.success) setJob(gd.job);
+        } catch {
+          /* the next tick retries */
+        }
+      }, 1000);
+      let rd: any;
+      try {
+        const rr = await fetch(`/api/provisioning-jobs/${jobId}/run`, { method: 'POST' });
+        rd = await rr.json();
+      } finally {
+        clearInterval(poll);
+      }
+      if (rd.job) setJob(rd.job);
+      if (!rd.success) {
+        const failed = rd.job?.steps?.find((st: any) => st.status === 'failed');
+        throw new Error(failed ? `${failed.label}: ${failed.error}` : rd.message || 'Provisioning failed');
+      }
+
+      setProvisionProgress({ step: 4, text: 'Tenant provisioned and verified.', completed: true, failed: false });
+      setLoading(false);
     } catch (err: any) {
-      setError(err?.message || 'Server error provisioning tenant');
-      setProvisionProgress((prev) => ({ ...prev, failed: true }));
+      const message = err?.message || 'Provisioning failed';
+      setError(message);
+      setProvisionProgress((prev) => ({ ...prev, text: message, failed: true, completed: false }));
       setLoading(false);
     }
   };
+
+  const buildPayload = () => ({
+    name: businessData.name,
+    slug: businessData.slug,
+    dbName: dbConfig.dbName || `casmik_tenant_${businessData.slug.replace(/-/g, '_')}`,
+    templateId: selectedThemeId,
+    status: 'active',
+    branding: {
+      brandName: businessData.brandName || businessData.name,
+      tagline: 'Instant Cash for Used Electronics at Your Doorstep',
+      primaryColor: customColors.primary,
+      secondaryColor: customColors.secondary,
+      accentColor: customColors.accent,
+      supportEmail: businessData.companyEmail || adminData.email,
+      supportPhone: businessData.supportPhone,
+      currency: businessData.currency,
+      currencySymbol: businessData.currencySymbol,
+      timeZone: businessData.timeZone,
+      country: businessData.country,
+    },
+    features: { buyback: true, refurbished: true, rentals: false, repairs: true, exchange: true },
+    subscription: {
+      plan: 'growth',
+      status: 'active',
+      validUntil: new Date(Date.now() + 365 * 86400000).toISOString(),
+      maxOrdersPerMonth: 2500,
+      customDomainEnabled: true,
+      priceMonthly: 7999,
+    },
+    // The owner always sets their own password through a single-use invite. The control plane never
+    // sets or sees client passwords.
+    adminEmail: adminData.email || businessData.companyEmail,
+    adminName: adminData.name || `${businessData.name} Admin`,
+    autoProvision: false,
+  });
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 overflow-y-auto">
@@ -385,6 +438,37 @@ export default function TenantCreationWizard({ isOpen, onClose, onSuccess }: Wiz
                     </select>
                   </div>
                 </div>
+              </div>
+              <div className="pt-2 border-t border-slate-800/80 space-y-3">
+                <div>
+                  <h4 className="text-xs font-bold text-white">Brand assets</h4>
+                  <p className="text-[11px] text-slate-400 mt-0.5">
+                    SVG, PNG or WebP. The server checks the file contents, not just the extension.
+                  </p>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <AssetPicker
+                    label="Company logo (max 512 KB)"
+                    maxKb={512}
+                    file={logoFile}
+                    onReject={setAssetError}
+                    onChange={(f) => {
+                      setLogoFile(f);
+                      setUploadedKinds((prev) => prev.filter((k) => k !== 'logo'));
+                    }}
+                  />
+                  <AssetPicker
+                    label="Favicon (max 128 KB)"
+                    maxKb={128}
+                    file={faviconFile}
+                    onReject={setAssetError}
+                    onChange={(f) => {
+                      setFaviconFile(f);
+                      setUploadedKinds((prev) => prev.filter((k) => k !== 'favicon'));
+                    }}
+                  />
+                </div>
+                {assetError && <p className="text-xs text-rose-400">{assetError}</p>}
               </div>
             </div>
           )}
@@ -602,31 +686,72 @@ export default function TenantCreationWizard({ isOpen, onClose, onSuccess }: Wiz
             </div>
           )}
 
-          {/* STEP 5: REVIEW & REAL-TIME PROVISIONING */}
+          {/* STEP 5: REVIEW & PROVISIONING (driven by the real job, not timers) */}
           {currentStep === 5 && (
             <div className="space-y-5 animate-fadeIn">
               <div>
-                <h3 className="text-sm font-bold text-white">Step 5: Review & Provisioning Execution</h3>
-                <p className="text-xs text-slate-400 mt-0.5">Verify configuration before initializing the isolated tenant infrastructure.</p>
+                <h3 className="text-sm font-bold text-white">Step 5: Review & Provisioning</h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  A step is marked done only after its real operation succeeds. If one fails, the exact reason is shown and you can retry.
+                </p>
               </div>
 
-              {loading ? (
-                <div className="p-8 rounded-2xl bg-[#121827] border border-slate-800 flex flex-col items-center justify-center text-center space-y-4">
-                  {provisionProgress.failed ? (
-                    <AlertCircle className="w-12 h-12 text-rose-500 animate-bounce" />
-                  ) : provisionProgress.completed ? (
-                    <CheckCircle2 className="w-12 h-12 text-emerald-400" />
-                  ) : (
-                    <Loader2 className="w-12 h-12 text-emerald-400 animate-spin" />
-                  )}
-                  <div>
-                    <h4 className="text-sm font-bold text-white">
-                      {provisionProgress.completed ? 'Tenant Successfully Deployed!' : provisionProgress.failed ? 'Provisioning Failed' : 'Provisioning Tenant...'}
-                    </h4>
-                    <p className="text-xs text-slate-400 mt-1 font-mono">{provisionProgress.text}</p>
+              {(job || loading) && (
+                <div className="p-5 rounded-2xl bg-[#121827] border border-slate-800 space-y-4">
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex items-center gap-3 min-w-0">
+                      {provisionProgress.completed ? (
+                        <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
+                      ) : provisionProgress.failed ? (
+                        <AlertCircle className="w-5 h-5 text-rose-500 shrink-0" />
+                      ) : (
+                        <Loader2 className="w-5 h-5 text-emerald-400 animate-spin shrink-0" />
+                      )}
+                      <div className="min-w-0">
+                        <div className="text-sm font-bold text-white">
+                          {provisionProgress.completed
+                            ? 'Tenant provisioned and verified'
+                            : provisionProgress.failed
+                              ? 'Provisioning stopped'
+                              : 'Provisioning tenant...'}
+                        </div>
+                        <div className="text-[11px] text-slate-400 font-mono break-words">{provisionProgress.text}</div>
+                      </div>
+                    </div>
+                    {job && <span className="text-[10px] font-mono text-slate-500 shrink-0">{job.id}</span>}
                   </div>
+
+                  {job && (
+                    <ol className="divide-y divide-slate-800/70 rounded-xl border border-slate-800 overflow-hidden">
+                      {job.steps.map((st: any, i: number) => (
+                        <li key={st.key} className="flex items-start gap-3 px-3.5 py-2.5 text-xs">
+                          <StepIcon status={st.status} />
+                          <div className="min-w-0 flex-1">
+                            <div className="font-medium text-slate-200">
+                              {i + 1}. {st.label}
+                            </div>
+                            {st.detail && <div className="text-[11px] text-slate-400 mt-0.5 break-words">{st.detail}</div>}
+                            {st.error && <div className="text-[11px] text-rose-400 mt-0.5 break-words">{st.error}</div>}
+                          </div>
+                          <span className="text-[10px] uppercase tracking-wider text-slate-500 shrink-0">{st.status}</span>
+                        </li>
+                      ))}
+                    </ol>
+                  )}
+
+                  {provisionProgress.completed && inviteToken && (
+                    <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-3 text-xs">
+                      <div className="font-semibold text-amber-300">Owner invite token (shown once)</div>
+                      <div className="mt-1 font-mono break-all text-slate-200 select-all">{inviteToken}</div>
+                      <div className="mt-1 text-slate-400">
+                        Send it to the owner securely. It expires in 72 hours and is stored only as a hash.
+                      </div>
+                    </div>
+                  )}
                 </div>
-              ) : (
+              )}
+
+              {!job && !loading && (
                 <div className="p-5 rounded-2xl bg-[#121827] border border-slate-800 space-y-4 text-xs">
                   <div className="grid grid-cols-2 gap-4">
                     <div>
@@ -650,8 +775,10 @@ export default function TenantCreationWizard({ isOpen, onClose, onSuccess }: Wiz
                       <div className="font-semibold text-white">{adminData.email}</div>
                     </div>
                     <div>
-                      <span className="text-slate-400">Seed Modules:</span>
-                      <div className="font-semibold text-emerald-300">Catalog, 45-Pt QA, RBAC, CMS</div>
+                      <span className="text-slate-400">Brand assets:</span>
+                      <div className="font-semibold text-white">
+                        {[logoFile && 'logo', faviconFile && 'favicon'].filter(Boolean).join(', ') || 'Default'}
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -714,8 +841,18 @@ export default function TenantCreationWizard({ isOpen, onClose, onSuccess }: Wiz
                 onClick={executeProvisioning}
                 className="px-6 py-2.5 bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500 hover:from-emerald-400 hover:to-cyan-400 text-black font-extrabold text-xs rounded-xl shadow-lg shadow-emerald-500/30 flex items-center space-x-2 transition transform hover:-translate-y-0.5"
               >
-                <Sparkles className="w-4 h-4" />
-                <span>Confirm & Auto-Provision Tenant</span>
+                {provisionProgress.failed ? <RefreshCw className="w-4 h-4" /> : <Sparkles className="w-4 h-4" />}
+                <span>{provisionProgress.failed ? 'Retry from failed step' : 'Confirm & Auto-Provision Tenant'}</span>
+              </button>
+            )}
+
+            {currentStep === 5 && provisionProgress.completed && (
+              <button
+                onClick={onSuccess}
+                className="px-6 py-2.5 bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500 text-black font-extrabold text-xs rounded-xl shadow-lg shadow-emerald-500/30 flex items-center space-x-2 transition"
+              >
+                <CheckCircle2 className="w-4 h-4" />
+                <span>Done</span>
               </button>
             )}
           </div>
@@ -725,3 +862,52 @@ export default function TenantCreationWizard({ isOpen, onClose, onSuccess }: Wiz
   );
 }
 
+function StepIcon({ status }: { status: string }) {
+  const base = 'w-4 h-4 shrink-0 mt-0.5';
+  if (status === 'succeeded') return <CheckCircle2 className={`${base} text-emerald-400`} />;
+  if (status === 'skipped') return <Check className={`${base} text-slate-500`} />;
+  if (status === 'failed') return <AlertCircle className={`${base} text-rose-400`} />;
+  if (status === 'running') return <Loader2 className={`${base} text-emerald-400 animate-spin`} />;
+  return <span className="w-4 h-4 shrink-0 mt-0.5 rounded-full border border-slate-700" />;
+}
+
+function AssetPicker({
+  label,
+  maxKb,
+  file,
+  onChange,
+  onReject,
+}: {
+  label: string;
+  maxKb: number;
+  file: File | null;
+  onChange: (f: File | null) => void;
+  onReject: (msg: string | null) => void;
+}) {
+  return (
+    <div>
+      <label className="block text-xs font-medium text-slate-300 mb-1.5">{label}</label>
+      <label className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-[#121827] border border-dashed border-slate-700 hover:border-emerald-500/60 cursor-pointer transition">
+        <Upload className="w-4 h-4 text-slate-400 shrink-0" />
+        <span className="text-xs text-slate-300 truncate">
+          {file ? `${file.name} · ${Math.max(1, Math.round(file.size / 1024))} KB` : 'Choose file'}
+        </span>
+        <input
+          type="file"
+          accept="image/svg+xml,image/png,image/webp"
+          className="sr-only"
+          onChange={(e) => {
+            const f = e.target.files?.[0] ?? null;
+            if (f && f.size > maxKb * 1024) {
+              onReject(`${label.split(' (')[0]} must be ${maxKb} KB or smaller`);
+              e.target.value = '';
+              return;
+            }
+            onReject(null);
+            onChange(f);
+          }}
+        />
+      </label>
+    </div>
+  );
+}

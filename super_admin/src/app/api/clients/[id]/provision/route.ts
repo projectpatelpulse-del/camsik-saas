@@ -15,7 +15,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     const client = await getTenantBySlugOrId(id);
     if (!client) return fail('Client not found', 404);
 
-    const result = await runProvisioning(client);
+    const result = await runProvisioning(client, undefined, { reseed: true, actorEmail: auth.actor.email });
     await recordAudit({
       action: result.success ? 'tenant.provision' : 'tenant.provision_failed',
       actor: auth.actor,

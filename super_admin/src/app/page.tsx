@@ -25,6 +25,7 @@ import {
   Wallet,
   Users,
   X,
+  Activity,
 } from 'lucide-react';
 import { Tenant } from '@/lib/types';
 import { AVAILABLE_TEMPLATES } from '@/lib/templates';
@@ -205,6 +206,7 @@ export default function SuperAdminDashboard() {
   const [dbStatusDetails, setDbStatusDetails] = useState<any>(null);
   const [actionLoading, setActionLoading] = useState(false);
   const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [overview, setOverview] = useState<any>(null);
 
   // Domains State
   const [domains, setDomains] = useState<any[]>([]);
@@ -263,10 +265,25 @@ export default function SuperAdminDashboard() {
     }
   };
 
-  useEffect(() => {
+  const fetchOverview = async () => {
+    try {
+      const res = await fetch('/api/overview');
+      const data = await res.json();
+      if (data.success) setOverview(data.stats);
+    } catch (err) {
+      console.error('Failed to load overview:', err);
+    }
+  };
+
+  const refreshAll = () => {
     fetchClients();
+    fetchOverview();
     fetchDomains();
     fetchBuilds();
+  };
+
+  useEffect(() => {
+    refreshAll();
   }, []);
 
   const handleInspectDb = async (client: Tenant) => {
@@ -481,8 +498,6 @@ export default function SuperAdminDashboard() {
     return matchesSearch && matchesTemplate;
   });
 
-  const totalMrr = clients.reduce((acc, c) => acc + (c.subscription?.priceMonthly || 0), 0);
-  const activeCount = clients.filter((c) => c.status === 'active').length;
   const pageMeta = PAGE_META[activeTab];
 
   const countFor = (id: TabId): number | undefined => {
@@ -607,7 +622,7 @@ export default function SuperAdminDashboard() {
           </div>
 
           <div className="flex items-center gap-2">
-            <button onClick={fetchClients} disabled={loading} className={BTN_ICON} title="Refresh">
+            <button onClick={refreshAll} disabled={loading} className={BTN_ICON} title="Refresh">
               <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin text-emerald-400' : ''}`} />
             </button>
             <button onClick={() => setShowWizard(true)} className={BTN_PRIMARY}>
@@ -650,28 +665,87 @@ export default function SuperAdminDashboard() {
             )}
           </div>
 
-          {/* KPI row */}
+          {/* KPI row: every figure comes from /api/overview (backend records) */}
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <StatCard
               label="Total clients"
-              value={clients.length}
-              hint={`${activeCount} active`}
+              value={overview ? overview.clients.total : '—'}
+              hint={overview ? `${overview.clients.active} active · ${overview.clients.trial} trial · ${overview.clients.suspended} suspended` : 'Loading'}
               icon={Users}
             />
-            <StatCard label="Isolated databases" value={clients.length} hint="One per tenant" icon={Database} />
             <StatCard
-              label="Design templates"
-              value={AVAILABLE_TEMPLATES.length}
-              hint="Available to assign"
-              icon={Palette}
+              label="Provisioned databases"
+              value={overview ? overview.databases.provisioned : '—'}
+              hint={overview ? `${overview.databases.pending} pending provisioning` : 'Loading'}
+              icon={Database}
             />
             <StatCard
-              label="Monthly revenue"
-              value={`₹${(totalMrr / 1000).toFixed(1)}k`}
-              hint="Active subscriptions"
+              label="Connected domains"
+              value={overview ? (overview.domains.connected ?? 'Not tracked') : '—'}
+              hint={overview ? `SSL active: ${overview.domains.sslActive ?? 'not issued yet'}` : 'Loading'}
+              icon={Globe}
+            />
+            <StatCard
+              label="Monthly recurring revenue"
+              value={overview ? `₹${(overview.subscriptions.monthlyRecurringRevenue / 1000).toFixed(1)}k` : '—'}
+              hint={overview ? `${overview.subscriptions.active} active subscriptions` : 'Loading'}
               icon={Wallet}
             />
           </div>
+
+          {/* Secondary metrics */}
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            <StatCard
+              label="Design templates"
+              value={overview ? overview.templates.total : AVAILABLE_TEMPLATES.length}
+              hint="In the template catalogue"
+              icon={Palette}
+            />
+            <StatCard
+              label="Android builds"
+              value={overview ? overview.builds.android.total : '—'}
+              hint={overview ? `${overview.builds.android.completed} completed · ${overview.builds.android.queued} queued` : 'Loading'}
+              icon={Cpu}
+            />
+            <StatCard
+              label="iOS builds"
+              value={overview ? overview.builds.ios.total : '—'}
+              hint={overview ? `${overview.builds.ios.completed} completed · ${overview.builds.ios.queued} queued` : 'Loading'}
+              icon={Cpu}
+            />
+            <StatCard
+              label="Failed deployments"
+              value={overview && overview.deployments.failed !== null ? overview.deployments.failed : 'Not tracked'}
+              hint="Deployment pipeline not built yet"
+              icon={Activity}
+            />
+          </div>
+
+          {activeTab === 'clients' && overview && (
+            <div className={`${CARD} overflow-hidden`}>
+              <div className="flex items-center justify-between border-b border-slate-800 px-5 py-3">
+                <h2 className="text-sm font-semibold text-white">Recent activity</h2>
+                <span className="text-xs text-slate-500">Latest 15 audited actions</span>
+              </div>
+              <ul className="divide-y divide-slate-800/70">
+                {overview.recentActivity.length === 0 && (
+                  <li className="px-5 py-6 text-center text-sm text-slate-500">No activity recorded yet.</li>
+                )}
+                {overview.recentActivity.map((a: any, i: number) => (
+                  <li key={`${a.createdAt}-${i}`} className="flex items-center justify-between gap-4 px-5 py-2.5 text-sm">
+                    <div className="min-w-0">
+                      <span className="font-mono text-xs text-emerald-300">{a.action}</span>
+                      {a.tenantSlug && <span className="ml-2 text-xs text-slate-400">{a.tenantSlug}</span>}
+                    </div>
+                    <div className="shrink-0 text-right text-xs text-slate-500">
+                      <div>{a.actorEmail}</div>
+                      <div>{new Date(a.createdAt).toLocaleString()}</div>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
 
           {/* TAB: CLIENTS */}
           {activeTab === 'clients' && (
