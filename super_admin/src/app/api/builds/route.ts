@@ -1,46 +1,63 @@
-import { NextResponse } from 'next/server';
-import { getMasterDatabase } from '@/lib/tenantMaster';
-import { getTenantBySlugOrId } from '@/lib/tenantMaster';
-import { MobileBuildRecord } from '@/lib/types';
+import { getMasterDatabase, getTenantBySlugOrId } from '@/lib/tenantMaster';
+import { requireAdmin, requestContext } from '@/lib/auth';
+import { recordAudit } from '@/lib/audit';
+import { errorResponse, fail, ok, readJson } from '@/lib/http';
+import { PANEL_TYPES, ValidationError } from '@/lib/security/validation';
 
 export const dynamic = 'force-dynamic';
 
+const ANDROID_TYPES = ['debug_apk', 'release_apk', 'aab'] as const;
+const IOS_TYPES = ['ipa'] as const;
+
 export async function GET(request: Request) {
   try {
-    const { searchParams } = new URL(request.url);
-    const tenantId = searchParams.get('tenantId');
-
-    const db = await getMasterDatabase();
-    const query = tenantId ? { tenantId } : {};
-    const builds = await db.collection('build_jobs').find(query).sort({ createdAt: -1 }).limit(50).toArray();
-
-    return NextResponse.json({ success: true, builds, total: builds.length });
-  } catch (error: any) {
-    return NextResponse.json({ success: false, message: error?.message || 'Failed to fetch builds' }, { status: 500 });
+    const auth = await requireAdmin(request);
+    if ('response' in auth) return auth.response;
+    const tenantId = new URL(request.url).searchParams.get('tenantId');
+    const builds = await (await getMasterDatabase())
+      .collection('build_jobs')
+      .find(tenantId ? { tenantId } : {}, { projection: { _id: 0 } })
+      .sort({ createdAt: -1 })
+      .limit(50)
+      .toArray();
+    return ok({ builds, total: builds.length });
+  } catch (e) {
+    return errorResponse(e, 'builds.list');
   }
 }
 
+/**
+ * Queues a build job. Nothing is compiled here: no build worker is connected yet, so the job stays
+ * `queued` and carries no artifact. A job is never reported as completed without an artifact.
+ */
 export async function POST(request: Request) {
   try {
-    const body = await request.json();
-    const { tenantId, panelType, buildType = 'release_apk', versionName = '1.0.0', versionCode = 1 } = body;
+    const auth = await requireAdmin(request);
+    if ('response' in auth) return auth.response;
+    const ctx = requestContext(request);
+    const body = await readJson(request);
 
-    if (!tenantId || !panelType) {
-      return NextResponse.json({ success: false, message: 'tenantId and panelType are required' }, { status: 400 });
-    }
+    const tenantKey = typeof body.tenantId === 'string' ? body.tenantId : '';
+    const panelType = typeof body.panelType === 'string' ? body.panelType : '';
+    if (!tenantKey || !panelType) return fail('tenantId and panelType are required', 400);
+    if (!PANEL_TYPES.includes(panelType as any)) throw new ValidationError('Unknown panel type', { panelType: 'unknown' });
 
-    const tenant = await getTenantBySlugOrId(tenantId);
-    if (!tenant) {
-      return NextResponse.json({ success: false, message: 'Tenant not found' }, { status: 404 });
-    }
+    const platform = panelType.endsWith('_ios') ? 'ios' : 'android';
+    const buildType = typeof body.buildType === 'string' ? body.buildType : platform === 'ios' ? 'ipa' : 'release_apk';
+    const allowed: readonly string[] = platform === 'ios' ? IOS_TYPES : ANDROID_TYPES;
+    if (!allowed.includes(buildType)) throw new ValidationError(`Build type '${buildType}' is not valid for ${platform}`, { buildType: 'invalid' });
 
-    const platform = panelType.includes('ios') ? 'ios' : 'android';
-    const buildId = `bld_${tenant.slug}_${panelType}_${Date.now()}`;
-    const cleanAppName = tenant.branding?.brandName || tenant.name;
-    const appId = `com.${tenant.slug.replace(/[^a-z0-9]/g, '')}.${panelType.replace('_android', '').replace('_ios', '')}`;
+    const versionName = typeof body.versionName === 'string' && /^\d+(\.\d+){0,2}$/.test(body.versionName) ? body.versionName : '1.0.0';
+    const versionCode = Number.isInteger(body.versionCode) && (body.versionCode as number) > 0 ? (body.versionCode as number) : 1;
 
-    const newBuild: MobileBuildRecord & { tenantId: string; tenantSlug: string; appId: string; appName: string } = {
-      id: buildId,
+    const tenant = await getTenantBySlugOrId(tenantKey);
+    if (!tenant) return fail('Tenant not found', 404);
+
+    const entitled = platform === 'ios' ? tenant.subscription.iosBuildEnabled : tenant.subscription.androidBuildEnabled;
+    if (!entitled) return fail(`This client's plan does not include ${platform === 'ios' ? 'iOS' : 'Android'} builds`, 403);
+
+    const job = {
+      id: `bld_${crypto.randomUUID()}`,
       tenantId: tenant.id,
       tenantSlug: tenant.slug,
       panelType,
@@ -48,33 +65,22 @@ export async function POST(request: Request) {
       buildType,
       versionName,
       versionCode,
-      appId,
-      appName: cleanAppName,
-      status: 'completed', // Pre-generated artifact ready
-      artifactUrl: `/artifacts/builds/${tenant.slug}/${panelType}-${buildType}.${platform === 'ios' ? 'ipa' : buildType === 'aab' ? 'aab' : 'apk'}`,
-      artifactSizeMb: platform === 'ios' ? 42.4 : buildType === 'aab' ? 24.8 : 31.2,
-      buildLogs: [
-        `[${new Date().toISOString()}] Initializing build worker for tenant '${tenant.name}' (${tenant.slug})`,
-        `[${new Date().toISOString()}] Injecting design tokens: Primary ${tenant.branding?.primaryColor}, Font: Inter`,
-        `[${new Date().toISOString()}] Configuring Flutter Flavor DSL for Application ID '${appId}'`,
-        `[${new Date().toISOString()}] Applying dynamic asset branding: App Icon, Splash Screen, Brand Name '${cleanAppName}'`,
-        `[${new Date().toISOString()}] Compiling Flutter Dart Release binaries (--release --flavor ${tenant.slug})`,
-        `[${new Date().toISOString()}] Artifact generated successfully: ${panelType}-${buildType}.${platform === 'ios' ? 'ipa' : buildType === 'aab' ? 'aab' : 'apk'}`,
-      ],
+      appId: `in.camsik.${tenant.slug.replace(/[^a-z0-9]/g, '')}.${panelType.replace(/_(android|ios|web)$/, '')}`,
+      appName: tenant.branding.brandName || tenant.name,
+      status: 'queued' as const,
+      artifactUrl: null,
+      artifactSizeMb: null,
+      buildLogs: [`[${new Date().toISOString()}] Queued. No build worker is connected for this platform yet.`],
       createdAt: new Date().toISOString(),
-      completedAt: new Date().toISOString(),
+      completedAt: null,
+      createdBy: auth.actor.email,
     };
 
-    const db = await getMasterDatabase();
-    await db.collection('build_jobs').insertOne(newBuild as any);
+    await (await getMasterDatabase()).collection('build_jobs').insertOne(job);
+    await recordAudit({ action: 'build.enqueue', actor: auth.actor, tenantId: tenant.id, tenantSlug: tenant.slug, ctx, meta: { jobId: job.id, panelType, buildType } });
 
-    return NextResponse.json({
-      success: true,
-      message: `Build job for ${panelType} (${buildType.toUpperCase()}) triggered successfully!`,
-      build: newBuild,
-    });
-  } catch (error: any) {
-    return NextResponse.json({ success: false, message: error?.message || 'Failed to trigger build job' }, { status: 500 });
+    return ok({ message: `Build job queued for ${panelType} (${buildType})`, build: job }, 201);
+  } catch (e) {
+    return errorResponse(e, 'builds.create');
   }
 }
-

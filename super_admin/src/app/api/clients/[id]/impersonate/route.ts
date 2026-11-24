@@ -1,53 +1,46 @@
-import { NextResponse } from 'next/server';
 import { getTenantBySlugOrId } from '@/lib/tenantMaster';
-import { getMasterDatabase } from '@/lib/tenantMaster';
+import { createImpersonationSession, requireAdmin, requestContext } from '@/lib/auth';
+import { recordAudit } from '@/lib/audit';
+import { errorResponse, fail, ok } from '@/lib/http';
 
 export const dynamic = 'force-dynamic';
 
-export async function POST(
-  request: Request,
-  { params }: { params: Promise<{ id: string }> }
-) {
+const PORTAL_BASE = process.env.TENANT_PORTAL_URL || 'http://localhost:3000/admin';
+
+/**
+ * Starts an impersonation session for a tenant's administrator.
+ * - Requires an authenticated super admin; the audit row records the real actor.
+ * - Token is valid 30 minutes, bound to this tenant, and returned once (only its hash is stored).
+ * - It is placed in the URL fragment so it is not sent to servers or written to access logs.
+ */
+export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const auth = await requireAdmin(request);
+    if ('response' in auth) return auth.response;
     const { id } = await params;
     const client = await getTenantBySlugOrId(id);
-
-    if (!client) {
-      return NextResponse.json({ success: false, message: 'Client not found' }, { status: 404 });
+    if (!client) return fail('Client not found', 404);
+    if (client.status === 'suspended' || client.status === 'inactive') {
+      return fail('Cannot impersonate a suspended or inactive client', 409);
     }
 
-    const sessionToken = `imp_${client.id}_${Date.now()}_${Math.random().toString(36).substring(2, 10)}`;
-    const expiresAt = new Date(Date.now() + 2 * 3600000).toISOString(); // 2 hours valid
-
-    // Write SaaS Audit Log in Master Database
-    const masterDb = await getMasterDatabase();
-    await masterDb.collection('saas_audit_logs').insertOne({
-      action: 'TENANT_IMPERSONATION',
+    const ctx = requestContext(request);
+    const { token, expiresAt } = await createImpersonationSession(auth.actor, client.id, ctx);
+    await recordAudit({
+      action: 'tenant.impersonate',
+      actor: auth.actor,
       tenantId: client.id,
       tenantSlug: client.slug,
-      tenantName: client.name,
-      impersonatedBy: 'Super Admin',
-      sessionToken,
-      expiresAt,
-      createdAt: new Date().toISOString(),
-      ip: request.headers.get('x-forwarded-for') || '127.0.0.1',
+      ctx,
+      meta: { expiresAt },
     });
 
-    const tenantAdminUrl = `http://localhost:3000/admin?tenant=${client.slug}&token=${sessionToken}`;
-
-    return NextResponse.json({
-      success: true,
-      message: `Impersonation session established for '${client.name}'`,
-      client,
-      sessionToken,
+    return ok({
+      message: `Impersonation session started for '${client.name}'`,
       expiresAt,
-      portalUrl: tenantAdminUrl,
+      portalUrl: `${PORTAL_BASE}?tenant=${encodeURIComponent(client.slug)}#impersonation=${token}`,
     });
-  } catch (error: any) {
-    return NextResponse.json(
-      { success: false, message: error?.message || 'Impersonation failed' },
-      { status: 500 }
-    );
+  } catch (e) {
+    return errorResponse(e, 'clients.impersonate');
   }
 }
-

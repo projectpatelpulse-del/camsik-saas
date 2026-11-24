@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../core/config/tenant_config.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -93,11 +94,11 @@ class CustomerSupportSheet extends StatelessWidget {
             iconColor: const Color(0xFF25D366),
             bgColor: const Color(0xFFE8F5E9),
             title: 'Chat on WhatsApp',
-            subtitle: '+91 8976000010 (Instant response)',
+            subtitle: '${TenantConfig.current.contactPhone} (Instant response)',
             onTap: () => _launchOrCopy(
               context,
-              'https://wa.me/918976000010?text=Hi%20Camsik%20Support,%20I%20need%20help%20with%20my%20order.',
-              '+918976000010',
+              TenantConfig.current.whatsappMessageUrl,
+              TenantConfig.current.contactPhone,
               'WhatsApp Number',
             ),
           ),
@@ -108,11 +109,11 @@ class CustomerSupportSheet extends StatelessWidget {
             iconColor: const Color(0xFF4F46E5),
             bgColor: const Color(0xFFEEF2FF),
             title: 'Call Helpline',
-            subtitle: '+91 8976000010 (Toll-Free Assistance)',
+            subtitle: '${TenantConfig.current.contactPhone} (Toll-Free Assistance)',
             onTap: () => _launchOrCopy(
               context,
-              'tel:+918976000010',
-              '+918976000010',
+              TenantConfig.current.telUrl,
+              TenantConfig.current.contactPhone,
               'Helpline Number',
             ),
           ),

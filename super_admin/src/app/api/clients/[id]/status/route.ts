@@ -1,39 +1,36 @@
-import { NextResponse } from 'next/server';
-import { updateTenant } from '@/lib/tenantMaster';
+import { getTenantBySlugOrId, updateTenant } from '@/lib/tenantMaster';
+import { requireAdmin, requestContext } from '@/lib/auth';
+import { recordAudit } from '@/lib/audit';
+import { errorResponse, fail, ok, readJson } from '@/lib/http';
+import { TENANT_STATUSES } from '@/lib/security/validation';
 
 export const dynamic = 'force-dynamic';
 
-export async function PATCH(
-  request: Request,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const auth = await requireAdmin(request);
+    if ('response' in auth) return auth.response;
     const { id } = await params;
-    const body = await request.json();
+    const client = await getTenantBySlugOrId(id);
+    if (!client) return fail('Client not found', 404);
 
-    const allowedStatuses = ['active', 'inactive', 'suspended', 'trial'];
-    if (!body.status || !allowedStatuses.includes(body.status)) {
-      return NextResponse.json(
-        { success: false, message: `Status must be one of: ${allowedStatuses.join(', ')}` },
-        { status: 400 }
-      );
+    const body = await readJson(request);
+    const status = body.status;
+    if (typeof status !== 'string' || !TENANT_STATUSES.includes(status as any)) {
+      return fail(`Status must be one of: ${TENANT_STATUSES.join(', ')}`, 400);
     }
 
-    const updated = await updateTenant(id, { status: body.status });
-    if (!updated) {
-      return NextResponse.json({ success: false, message: 'Client not found' }, { status: 404 });
-    }
-
-    return NextResponse.json({
-      success: true,
-      message: `Tenant status updated to '${body.status}'`,
-      client: updated,
+    const updated = await updateTenant(client.id, { status: status as any });
+    await recordAudit({
+      action: 'tenant.status',
+      actor: auth.actor,
+      tenantId: client.id,
+      tenantSlug: client.slug,
+      ctx: requestContext(request),
+      meta: { from: client.status, to: status },
     });
-  } catch (error: any) {
-    return NextResponse.json(
-      { success: false, message: error?.message || 'Status update failed' },
-      { status: 500 }
-    );
+    return ok({ message: `Tenant status updated to '${status}'`, client: updated });
+  } catch (e) {
+    return errorResponse(e, 'clients.status');
   }
 }
-

@@ -6,11 +6,17 @@ class ApiConstants {
   // where the newly created APIs (profile, addresses, otp, etc.) are running.
   // Set to false when targeting the remote production Vercel server.
   static const bool useLocalBackend = false;
-  static const String serverUrl = 
-  useLocalBackend
-      ? "http://127.0.0.1:4028"
-      :
-       "https://casmik-one.vercel.app";
+
+  // Build-time override for white-label builds, e.g.
+  //   flutter build apk --dart-define=API_BASE_URL=https://api.tenant.example.com
+  static const String _apiBaseUrlOverride = String.fromEnvironment('API_BASE_URL');
+  static const bool _hasOverride = _apiBaseUrlOverride != '';
+
+  static const String serverUrl = _hasOverride
+      ? _apiBaseUrlOverride
+      : useLocalBackend
+          ? "http://127.0.0.1:4028"
+          : "https://casmik-one.vercel.app";
   static const String baseUrl = "$serverUrl/api";
 
   // Fallback Server URLs for local development / testing

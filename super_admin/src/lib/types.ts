@@ -190,6 +190,19 @@ export interface Tenant {
   adminUser?: TenantAdminUser;     // Initial administrator account
   builds?: MobileBuildRecord[];    // Mobile compilation artifacts
   dbProvisioned: boolean;          // Whether the dedicated DB has been initialized
+  provisioning?: {                 // Last provisioning run (shown in UI, retryable)
+    status: 'running' | 'completed' | 'failed';
+    startedAt: string;
+    finishedAt?: string;
+    error?: string | null;
+    seeded?: Record<string, number>;
+  };
+  brandingDraft?: {                // Unpublished Branding Studio changes
+    branding?: Partial<TenantBranding>;
+    templateId?: string;
+    savedAt: string;
+  } | null;
+  brandingVersion?: number;        // Published branding version (0 = never published)
   createdAt: string;
   updatedAt: string;
 }

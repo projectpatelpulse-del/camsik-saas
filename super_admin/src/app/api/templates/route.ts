@@ -1,20 +1,15 @@
-import { NextResponse } from 'next/server';
 import { AVAILABLE_TEMPLATES } from '@/lib/templates';
+import { requireAdmin } from '@/lib/auth';
+import { errorResponse, ok } from '@/lib/http';
 
 export const dynamic = 'force-dynamic';
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    return NextResponse.json({
-      success: true,
-      templates: AVAILABLE_TEMPLATES,
-      total: AVAILABLE_TEMPLATES.length,
-    });
-  } catch (error: any) {
-    return NextResponse.json(
-      { success: false, message: error?.message || 'Failed to fetch templates' },
-      { status: 500 }
-    );
+    const auth = await requireAdmin(request);
+    if ('response' in auth) return auth.response;
+    return ok({ templates: AVAILABLE_TEMPLATES, total: AVAILABLE_TEMPLATES.length });
+  } catch (e) {
+    return errorResponse(e, 'templates.list');
   }
 }
-

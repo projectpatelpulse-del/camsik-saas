@@ -49,10 +49,6 @@ export async function GET(
         branding: client.branding,
         features: client.features,
         template,
-        database: {
-          name: client.dbName,
-          status: 'connected',
-        },
         catalog: {
           categoriesCount: categories.length,
           categories,

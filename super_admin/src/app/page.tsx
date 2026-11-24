@@ -1,44 +1,200 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import Link from 'next/link';
 import {
   Building2,
   Database,
-  Layers,
   Palette,
   Plus,
   RefreshCw,
-  ExternalLink,
-  Shield,
+  Globe,
   CheckCircle2,
   AlertCircle,
   Search,
-  Globe,
-  Server,
-  Check,
-  TrendingUp,
-  DollarSign,
-  Radio,
-  Copy,
-  UserCheck,
-  Smartphone,
-  Trash2,
-  Power,
-  Sliders,
   Cpu,
   Download,
   Terminal,
-  Activity,
-  ArrowRight,
+  Sliders,
+  UserCheck,
+  Copy,
+  Power,
+  Trash2,
+  LogOut,
+  LayoutDashboard,
+  Shield,
+  Wallet,
+  Users,
+  X,
 } from 'lucide-react';
 import { Tenant } from '@/lib/types';
 import { AVAILABLE_TEMPLATES } from '@/lib/templates';
 import TenantCreationWizard from './components/TenantCreationWizard';
 import ThemePreviewStudio from './components/ThemePreviewStudio';
 
+type TabId = 'clients' | 'studio' | 'templates' | 'domains' | 'builds' | 'databases';
+
+const NAV_GROUPS: {
+  label: string;
+  items: { id: TabId; label: string; icon: React.ComponentType<{ className?: string }> }[];
+}[] = [
+  {
+    label: 'Tenants',
+    items: [
+      { id: 'clients', label: 'Clients', icon: Building2 },
+      { id: 'templates', label: 'Templates', icon: Palette },
+      { id: 'studio', label: 'Theme Studio', icon: Sliders },
+    ],
+  },
+  {
+    label: 'Infrastructure',
+    items: [
+      { id: 'databases', label: 'Databases', icon: Database },
+      { id: 'domains', label: 'Domains & SSL', icon: Globe },
+    ],
+  },
+  {
+    label: 'Operations',
+    items: [{ id: 'builds', label: 'Mobile Builds', icon: Cpu }],
+  },
+];
+
+const PAGE_META: Record<TabId, { title: string; description: string }> = {
+  clients: {
+    title: 'Clients',
+    description: 'Manage tenants, their dedicated databases, plans and access.',
+  },
+  studio: {
+    title: 'Theme Studio',
+    description: 'Live-preview and tune branding and panel overrides for a tenant.',
+  },
+  templates: {
+    title: 'Templates',
+    description: 'Design system templates available for new and existing tenants.',
+  },
+  domains: {
+    title: 'Domains & SSL',
+    description: 'Map custom hostnames to tenant storefronts and admin panels.',
+  },
+  builds: {
+    title: 'Mobile Builds',
+    description: 'Generate branded Android and iOS artifacts for each tenant application.',
+  },
+  databases: {
+    title: 'Databases',
+    description: 'Each tenant runs on its own isolated MongoDB database.',
+  },
+};
+
+/* ---------- Shared UI primitives (admin panel look) ---------- */
+
+const CARD = 'rounded-xl border border-slate-800 bg-[#0F1522]';
+const TABLE_HEAD = 'bg-slate-900/60 text-left text-xs font-medium text-slate-400 border-b border-slate-800';
+const TH = 'px-5 py-3 font-medium whitespace-nowrap';
+const TD = 'px-5 py-3.5 text-sm text-slate-300 align-middle';
+const INPUT =
+  'w-full rounded-lg border border-slate-700 bg-[#0A0F1A] px-3 py-2 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/40';
+const LABEL = 'block text-xs font-medium text-slate-400 mb-1.5';
+const BTN_PRIMARY =
+  'inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-600 px-3.5 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed transition';
+const BTN_SECONDARY =
+  'inline-flex items-center justify-center gap-2 rounded-lg border border-slate-700 bg-slate-800/60 px-3 py-2 text-sm font-medium text-slate-200 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition';
+const BTN_ICON =
+  'inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-700 text-slate-400 hover:bg-slate-800 hover:text-slate-100 disabled:opacity-50 transition';
+
+type Tone = 'green' | 'amber' | 'red' | 'slate' | 'cyan' | 'violet';
+const TONES: Record<Tone, string> = {
+  green: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
+  amber: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
+  red: 'bg-rose-500/10 text-rose-400 border-rose-500/20',
+  slate: 'bg-slate-700/40 text-slate-300 border-slate-600/50',
+  cyan: 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20',
+  violet: 'bg-violet-500/10 text-violet-400 border-violet-500/20',
+};
+
+function Badge({ tone = 'slate', children }: { tone?: Tone; children: React.ReactNode }) {
+  return (
+    <span className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs font-medium ${TONES[tone]}`}>
+      {children}
+    </span>
+  );
+}
+
+function StatCard({
+  label,
+  value,
+  hint,
+  icon: Icon,
+}: {
+  label: string;
+  value: React.ReactNode;
+  hint: string;
+  icon: React.ComponentType<{ className?: string }>;
+}) {
+  return (
+    <div className={`${CARD} p-5`}>
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-medium text-slate-400">{label}</span>
+        <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-800/80">
+          <Icon className="h-4 w-4 text-slate-300" />
+        </span>
+      </div>
+      <div className="mt-3 text-2xl font-semibold tracking-tight text-white">{value}</div>
+      <div className="mt-1 text-xs text-slate-500">{hint}</div>
+    </div>
+  );
+}
+
+function EmptyRow({ colSpan, children }: { colSpan: number; children: React.ReactNode }) {
+  return (
+    <tr>
+      <td colSpan={colSpan} className="px-5 py-10 text-center text-sm text-slate-500">
+        {children}
+      </td>
+    </tr>
+  );
+}
+
+function Modal({
+  title,
+  icon: Icon,
+  onClose,
+  footer,
+  width = 'max-w-lg',
+  children,
+}: {
+  title: string;
+  icon?: React.ComponentType<{ className?: string }>;
+  onClose: () => void;
+  footer?: React.ReactNode;
+  width?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
+      <div
+        className={`${CARD} w-full ${width} shadow-2xl`}
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+      >
+        <div className="flex items-center justify-between border-b border-slate-800 px-5 py-4">
+          <div className="flex items-center gap-2.5">
+            {Icon && <Icon className="h-4 w-4 text-slate-400" />}
+            <h3 className="text-sm font-semibold text-white">{title}</h3>
+          </div>
+          <button onClick={onClose} className={BTN_ICON} aria-label="Close">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="px-5 py-5">{children}</div>
+        {footer && <div className="flex items-center justify-end gap-2 border-t border-slate-800 px-5 py-3">{footer}</div>}
+      </div>
+    </div>
+  );
+}
+
 export default function SuperAdminDashboard() {
-  const [activeTab, setActiveTab] = useState<'clients' | 'studio' | 'templates' | 'domains' | 'builds' | 'databases'>('clients');
+  const [activeTab, setActiveTab] = useState<TabId>('clients');
   const [clients, setClients] = useState<Tenant[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -213,11 +369,16 @@ export default function SuperAdminDashboard() {
   };
 
   const handleDeleteClient = async (client: Tenant) => {
-    if (!confirm(`Are you sure you want to delete client '${client.name}'? This cannot be undone.`)) return;
+    const typed = window.prompt(
+      `Permanently delete '${client.name}'? The client must be suspended first.\nType the slug "${client.slug}" to confirm:`
+    );
+    if (typed === null) return;
     try {
       setActionLoading(true);
       const res = await fetch(`/api/clients/${client.id}`, {
         method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confirmSlug: typed.trim() }),
       });
       const data = await res.json();
       if (data.success) {
@@ -321,968 +482,808 @@ export default function SuperAdminDashboard() {
   });
 
   const totalMrr = clients.reduce((acc, c) => acc + (c.subscription?.priceMonthly || 0), 0);
-  const totalDbs = clients.length;
+  const activeCount = clients.filter((c) => c.status === 'active').length;
+  const pageMeta = PAGE_META[activeTab];
+
+  const countFor = (id: TabId): number | undefined => {
+    if (id === 'clients') return clients.length;
+    if (id === 'templates') return AVAILABLE_TEMPLATES.length;
+    if (id === 'domains') return domains.length;
+    if (id === 'builds') return builds.length;
+    if (id === 'databases') return clients.length;
+    return undefined;
+  };
+
+  const signOut = async () => {
+    await fetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
+    window.location.assign('/login');
+  };
 
   return (
-    <div className="min-h-screen bg-[#0A0D14] text-slate-100 flex flex-col font-sans selection:bg-emerald-500 selection:text-black">
-      {/* Toast Notification */}
+    <div className="flex min-h-screen bg-[#0A0D14] text-slate-200 font-sans antialiased">
+      {/* Toast */}
       {notification && (
         <div
-          className={`fixed top-5 right-5 z-50 px-4 py-3 rounded-xl shadow-2xl flex items-center space-x-3 text-sm font-medium border animate-fadeIn ${
+          className={`fixed top-4 right-4 z-[60] flex items-center gap-3 rounded-lg border px-4 py-3 text-sm shadow-xl ${
             notification.type === 'success'
-              ? 'bg-emerald-950/90 text-emerald-300 border-emerald-500/40 backdrop-blur-md'
-              : 'bg-rose-950/90 text-rose-300 border-rose-500/40 backdrop-blur-md'
+              ? 'border-emerald-500/30 bg-[#0F1F1A] text-emerald-300'
+              : 'border-rose-500/30 bg-[#21131A] text-rose-300'
           }`}
         >
           {notification.type === 'success' ? (
-            <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
+            <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-400" />
           ) : (
-            <AlertCircle className="w-5 h-5 text-rose-400 shrink-0" />
+            <AlertCircle className="h-4 w-4 shrink-0 text-rose-400" />
           )}
           <span>{notification.message}</span>
         </div>
       )}
 
-      {/* Header */}
-      <header className="border-b border-slate-800/80 bg-[#0F1420]/80 backdrop-blur-md sticky top-0 z-40 px-6 py-4">
-        <div className="max-w-7xl mx-auto flex items-center justify-between">
-          <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-500 to-cyan-500 flex items-center justify-center shadow-lg shadow-emerald-500/20">
-              <Shield className="w-5 h-5 text-black" />
+      {/* Sidebar */}
+      <aside className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col border-r border-slate-800 bg-[#0C1119] md:flex">
+        <div className="flex h-16 items-center gap-3 border-b border-slate-800 px-5">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-600">
+            <Shield className="h-4 w-4 text-white" />
+          </div>
+          <div className="min-w-0">
+            <div className="truncate text-sm font-semibold text-white">CAMSIK</div>
+            <div className="truncate text-[11px] text-slate-500">Super Admin</div>
+          </div>
+        </div>
+
+        <nav className="flex-1 space-y-6 overflow-y-auto px-3 py-5">
+          <div>
+            <button
+              onClick={() => setActiveTab('clients')}
+              className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition ${
+                activeTab === 'clients' ? 'bg-slate-800 text-white' : 'text-slate-400 hover:bg-slate-800/50 hover:text-slate-100'
+              }`}
+            >
+              <LayoutDashboard className="h-4 w-4" />
+              <span>Overview</span>
+            </button>
+          </div>
+
+          {NAV_GROUPS.map((group) => (
+            <div key={group.label}>
+              <div className="px-3 pb-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                {group.label}
+              </div>
+              <div className="space-y-0.5">
+                {group.items.map((item) => {
+                  const active = activeTab === item.id;
+                  const count = countFor(item.id);
+                  const Icon = item.icon;
+                  return (
+                    <button
+                      key={item.id}
+                      onClick={() => setActiveTab(item.id)}
+                      className={`flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-sm font-medium transition ${
+                        active
+                          ? 'bg-emerald-500/10 text-emerald-300'
+                          : 'text-slate-400 hover:bg-slate-800/50 hover:text-slate-100'
+                      }`}
+                    >
+                      <span className="flex items-center gap-3">
+                        <Icon className="h-4 w-4" />
+                        {item.label}
+                      </span>
+                      {count !== undefined && (
+                        <span
+                          className={`rounded-md px-1.5 py-0.5 text-[11px] ${
+                            active ? 'bg-emerald-500/20 text-emerald-300' : 'bg-slate-800 text-slate-400'
+                          }`}
+                        >
+                          {count}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
+          ))}
+        </nav>
+
+        <div className="border-t border-slate-800 p-3">
+          <button
+            onClick={signOut}
+            className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-slate-400 hover:bg-slate-800/50 hover:text-slate-100 transition"
+          >
+            <LogOut className="h-4 w-4" />
+            Sign out
+          </button>
+        </div>
+      </aside>
+
+      {/* Main column */}
+      <div className="flex min-w-0 flex-1 flex-col">
+        {/* Top bar */}
+        <header className="sticky top-0 z-30 flex h-16 items-center justify-between gap-4 border-b border-slate-800 bg-[#0C1119]/95 px-4 backdrop-blur sm:px-6">
+          <div className="flex min-w-0 items-center gap-2 text-sm">
+            <span className="hidden text-slate-500 sm:inline">Super Admin</span>
+            <span className="hidden text-slate-700 sm:inline">/</span>
+            <span className="truncate font-medium text-slate-100">{pageMeta.title}</span>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button onClick={fetchClients} disabled={loading} className={BTN_ICON} title="Refresh">
+              <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin text-emerald-400' : ''}`} />
+            </button>
+            <button onClick={() => setShowWizard(true)} className={BTN_PRIMARY}>
+              <Plus className="h-4 w-4" />
+              <span className="hidden sm:inline">New client</span>
+            </button>
+            <div className="ml-1 flex h-8 w-8 items-center justify-center rounded-full bg-slate-700 text-xs font-semibold text-slate-200 md:hidden">
+              SA
+            </div>
+          </div>
+        </header>
+
+        {/* Mobile nav */}
+        <nav className="flex gap-1 overflow-x-auto border-b border-slate-800 bg-[#0C1119] px-4 py-2 md:hidden">
+          {NAV_GROUPS.flatMap((g) => g.items).map((item) => (
+            <button
+              key={item.id}
+              onClick={() => setActiveTab(item.id)}
+              className={`shrink-0 rounded-md px-3 py-1.5 text-xs font-medium ${
+                activeTab === item.id ? 'bg-emerald-500/15 text-emerald-300' : 'text-slate-400'
+              }`}
+            >
+              {item.label}
+            </button>
+          ))}
+        </nav>
+
+        <main className="mx-auto w-full max-w-7xl flex-1 space-y-6 p-4 sm:p-6">
+          {/* Page header */}
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div>
-              <div className="flex items-center space-x-2">
-                <h1 className="text-lg font-bold tracking-tight text-white">CAMSIK SaaS Super Admin</h1>
-                <span className="px-2 py-0.5 text-[10px] font-semibold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-full">
-                  Database-per-Tenant Model
-                </span>
-              </div>
-              <p className="text-xs text-slate-400">12-Panel White-Label Control Plane & Automation Suite</p>
+              <h1 className="text-xl font-semibold tracking-tight text-white">{pageMeta.title}</h1>
+              <p className="mt-1 text-sm text-slate-400">{pageMeta.description}</p>
             </div>
+            {activeTab === 'clients' && (
+              <button onClick={() => setShowWizard(true)} className={BTN_PRIMARY}>
+                <Plus className="h-4 w-4" />
+                Onboard client
+              </button>
+            )}
           </div>
 
-          <div className="flex items-center space-x-4">
-            <button
-              onClick={() => setShowWizard(true)}
-              className="px-4 py-2 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-black font-semibold text-xs rounded-xl shadow-lg shadow-emerald-500/20 flex items-center space-x-2 transition-all transform hover:-translate-y-0.5"
-            >
-              <Plus className="w-4 h-4 stroke-[2.5]" />
-              <span>Onboard Client Wizard</span>
-            </button>
-            <button
-              onClick={fetchClients}
-              disabled={loading}
-              className="p-2.5 rounded-xl bg-slate-800/80 hover:bg-slate-700/80 text-slate-300 border border-slate-700/60 transition"
-              title="Refresh Clients"
-            >
-              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin text-emerald-400' : ''}`} />
-            </button>
-          </div>
-        </div>
-      </header>
-
-      {/* Main Content */}
-      <main className="max-w-7xl mx-auto w-full px-6 py-8 flex-1 space-y-8">
-        {/* KPI Bento Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <div className="p-5 rounded-2xl bg-gradient-to-b from-[#131B2E] to-[#0E1524] border border-slate-800/80 shadow-lg relative overflow-hidden group">
-            <div className="absolute top-0 right-0 w-24 h-24 bg-emerald-500/5 rounded-full blur-2xl group-hover:bg-emerald-500/10 transition-all" />
-            <div className="flex items-center justify-between text-slate-400 text-xs font-medium mb-3">
-              <span>Total Active Clients</span>
-              <Building2 className="w-4 h-4 text-emerald-400" />
-            </div>
-            <div className="text-3xl font-extrabold text-white tracking-tight">{clients.length}</div>
-            <div className="text-[11px] text-emerald-400 mt-2 flex items-center space-x-1">
-              <TrendingUp className="w-3.5 h-3.5" />
-              <span>Independent White-Label Tenants</span>
-            </div>
+          {/* KPI row */}
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            <StatCard
+              label="Total clients"
+              value={clients.length}
+              hint={`${activeCount} active`}
+              icon={Users}
+            />
+            <StatCard label="Isolated databases" value={clients.length} hint="One per tenant" icon={Database} />
+            <StatCard
+              label="Design templates"
+              value={AVAILABLE_TEMPLATES.length}
+              hint="Available to assign"
+              icon={Palette}
+            />
+            <StatCard
+              label="Monthly revenue"
+              value={`₹${(totalMrr / 1000).toFixed(1)}k`}
+              hint="Active subscriptions"
+              icon={Wallet}
+            />
           </div>
 
-          <div className="p-5 rounded-2xl bg-gradient-to-b from-[#131B2E] to-[#0E1524] border border-slate-800/80 shadow-lg relative overflow-hidden group">
-            <div className="absolute top-0 right-0 w-24 h-24 bg-cyan-500/5 rounded-full blur-2xl group-hover:bg-cyan-500/10 transition-all" />
-            <div className="flex items-center justify-between text-slate-400 text-xs font-medium mb-3">
-              <span>Isolated Databases</span>
-              <Database className="w-4 h-4 text-cyan-400" />
-            </div>
-            <div className="text-3xl font-extrabold text-white tracking-tight">{totalDbs}</div>
-            <div className="text-[11px] text-cyan-400 mt-2 flex items-center space-x-1">
-              <Server className="w-3.5 h-3.5" />
-              <span>Zero Cross-Tenant Leakage</span>
-            </div>
-          </div>
-
-          <div className="p-5 rounded-2xl bg-gradient-to-b from-[#131B2E] to-[#0E1524] border border-slate-800/80 shadow-lg relative overflow-hidden group">
-            <div className="absolute top-0 right-0 w-24 h-24 bg-purple-500/5 rounded-full blur-2xl group-hover:bg-purple-500/10 transition-all" />
-            <div className="flex items-center justify-between text-slate-400 text-xs font-medium mb-3">
-              <span>Available Themes</span>
-              <Palette className="w-4 h-4 text-purple-400" />
-            </div>
-            <div className="text-3xl font-extrabold text-white tracking-tight">{AVAILABLE_TEMPLATES.length}</div>
-            <div className="text-[11px] text-purple-400 mt-2 flex items-center space-x-1">
-              <Layers className="w-3.5 h-3.5" />
-              <span>15 Pre-Engineered Design Systems</span>
-            </div>
-          </div>
-
-          <div className="p-5 rounded-2xl bg-gradient-to-b from-[#131B2E] to-[#0E1524] border border-slate-800/80 shadow-lg relative overflow-hidden group">
-            <div className="absolute top-0 right-0 w-24 h-24 bg-amber-500/5 rounded-full blur-2xl group-hover:bg-amber-500/10 transition-all" />
-            <div className="flex items-center justify-between text-slate-400 text-xs font-medium mb-3">
-              <span>Monthly SaaS Revenue</span>
-              <DollarSign className="w-4 h-4 text-amber-400" />
-            </div>
-            <div className="text-3xl font-extrabold text-white tracking-tight">₹{(totalMrr / 1000).toFixed(1)}k</div>
-            <div className="text-[11px] text-amber-400 mt-2 flex items-center space-x-1">
-              <span>Active Monthly Subscriptions</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Tab Navigation */}
-        <div className="flex items-center space-x-2 border-b border-slate-800 pb-3 overflow-x-auto">
-          <button
-            onClick={() => setActiveTab('clients')}
-            className={`px-4 py-2 rounded-xl text-xs font-semibold flex items-center space-x-2 transition ${
-              activeTab === 'clients'
-                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
-                : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
-            }`}
-          >
-            <Building2 className="w-4 h-4" />
-            <span>Clients & Dedicated DBs ({clients.length})</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('studio')}
-            className={`px-4 py-2 rounded-xl text-xs font-semibold flex items-center space-x-2 transition ${
-              activeTab === 'studio'
-                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
-                : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
-            }`}
-          >
-            <Smartphone className="w-4 h-4" />
-            <span>12-Panel Live Theme Studio</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('templates')}
-            className={`px-4 py-2 rounded-xl text-xs font-semibold flex items-center space-x-2 transition ${
-              activeTab === 'templates'
-                ? 'bg-purple-500/20 text-purple-300 border border-purple-500/40'
-                : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
-            }`}
-          >
-            <Palette className="w-4 h-4" />
-            <span>Templates Catalog ({AVAILABLE_TEMPLATES.length})</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('domains')}
-            className={`px-4 py-2 rounded-xl text-xs font-semibold flex items-center space-x-2 transition ${
-              activeTab === 'domains'
-                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
-                : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
-            }`}
-          >
-            <Globe className="w-4 h-4" />
-            <span>Custom Domains & SSL</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('builds')}
-            className={`px-4 py-2 rounded-xl text-xs font-semibold flex items-center space-x-2 transition ${
-              activeTab === 'builds'
-                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
-                : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
-            }`}
-          >
-            <Cpu className="w-4 h-4" />
-            <span>Mobile App Build Generator</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('databases')}
-            className={`px-4 py-2 rounded-xl text-xs font-semibold flex items-center space-x-2 transition ${
-              activeTab === 'databases'
-                ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40'
-                : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
-            }`}
-          >
-            <Database className="w-4 h-4" />
-            <span>Database Monitor & Health</span>
-          </button>
-        </div>
-
-        {/* TAB 1: CLIENTS TABLE */}
-        {activeTab === 'clients' && (
-          <div className="space-y-4">
-            <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
-              <div className="relative w-full sm:w-80">
-                <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
-                <input
-                  type="text"
-                  placeholder="Search client, subdomain, or db..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full bg-[#121826] border border-slate-800 rounded-xl pl-10 pr-4 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500/60"
-                />
+          {/* TAB: CLIENTS */}
+          {activeTab === 'clients' && (
+            <div className="space-y-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="relative w-full sm:w-80">
+                  <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-500" />
+                  <input
+                    type="text"
+                    placeholder="Search by name, slug or database"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className={`${INPUT} pl-9`}
+                  />
+                </div>
+                <select
+                  value={filterTemplate}
+                  onChange={(e) => setFilterTemplate(e.target.value)}
+                  className="rounded-lg border border-slate-700 bg-[#0A0F1A] px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-emerald-500"
+                >
+                  <option value="all">All templates</option>
+                  {AVAILABLE_TEMPLATES.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.name}
+                    </option>
+                  ))}
+                </select>
               </div>
 
-              <select
-                value={filterTemplate}
-                onChange={(e) => setFilterTemplate(e.target.value)}
-                className="bg-[#121826] border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-300 focus:outline-none focus:border-emerald-500/60"
-              >
-                <option value="all">All Templates ({AVAILABLE_TEMPLATES.length})</option>
-                {AVAILABLE_TEMPLATES.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="bg-[#101625] border border-slate-800/80 rounded-2xl overflow-hidden shadow-xl">
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs">
-                  <thead className="bg-[#141C2E] text-slate-400 uppercase font-semibold text-[10px] tracking-wider border-b border-slate-800">
-                    <tr>
-                      <th className="px-6 py-4">Client & Domain</th>
-                      <th className="px-6 py-4">Dedicated MongoDB Database</th>
-                      <th className="px-6 py-4">Assigned Template</th>
-                      <th className="px-6 py-4">SaaS Plan</th>
-                      <th className="px-6 py-4">Status</th>
-                      <th className="px-6 py-4 text-right">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-800/60 text-slate-300">
-                    {filteredClients.map((client) => {
-                      const template = AVAILABLE_TEMPLATES.find((t) => t.id === client.templateId);
-                      return (
-                        <tr key={client.id} className="hover:bg-slate-800/30 transition">
-                          <td className="px-6 py-4">
-                            <div className="flex items-center space-x-3">
-                              <div
-                                className="w-9 h-9 rounded-xl flex items-center justify-center font-bold text-xs shadow-md"
-                                style={{
-                                  backgroundColor: client.branding?.primaryColor || '#10B981',
-                                  color: '#000000',
-                                }}
-                              >
-                                {client.name.slice(0, 2).toUpperCase()}
-                              </div>
-                              <div>
-                                <div className="font-semibold text-white text-sm">{client.name}</div>
-                                <div className="text-[11px] text-slate-400 flex items-center space-x-1.5 mt-0.5">
-                                  <Globe className="w-3 h-3 text-slate-500" />
-                                  <span className="text-emerald-400">{client.slug}.camsik.com</span>
-                                  {client.customDomain && (
-                                    <>
-                                      <span className="text-slate-600">•</span>
-                                      <span className="text-cyan-400">{client.customDomain}</span>
-                                    </>
-                                  )}
+              <div className={`${CARD} overflow-hidden`}>
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[860px]">
+                    <thead className={TABLE_HEAD}>
+                      <tr>
+                        <th className={TH}>Client</th>
+                        <th className={TH}>Database</th>
+                        <th className={TH}>Template</th>
+                        <th className={TH}>Plan</th>
+                        <th className={TH}>Status</th>
+                        <th className={`${TH} text-right`}>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/70">
+                      {filteredClients.map((client) => {
+                        const template = AVAILABLE_TEMPLATES.find((t) => t.id === client.templateId);
+                        return (
+                          <tr key={client.id} className="hover:bg-slate-800/30 transition">
+                            <td className={TD}>
+                              <div className="flex items-center gap-3">
+                                <div
+                                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-xs font-semibold text-black"
+                                  style={{ backgroundColor: client.branding?.primaryColor || '#10B981' }}
+                                >
+                                  {client.name.slice(0, 2).toUpperCase()}
+                                </div>
+                                <div className="min-w-0">
+                                  <div className="font-medium text-white">{client.name}</div>
+                                  <div className="mt-0.5 flex items-center gap-1.5 text-xs text-slate-500">
+                                    <Globe className="h-3 w-3" />
+                                    <span>{client.slug}.camsik.com</span>
+                                    {client.customDomain && (
+                                      <>
+                                        <span className="text-slate-700">•</span>
+                                        <span className="text-cyan-400">{client.customDomain}</span>
+                                      </>
+                                    )}
+                                  </div>
                                 </div>
                               </div>
-                            </div>
-                          </td>
+                            </td>
 
-                          <td className="px-6 py-4">
-                            <div className="space-y-1">
-                              <div className="font-mono text-cyan-300 font-medium text-[11px] flex items-center space-x-1.5">
-                                <Database className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
-                                <span>{client.dbName}</span>
-                              </div>
-                              <div className="text-[10px] text-slate-400">
-                                Provisioned: {client.dbProvisioned ? (
-                                  <span className="text-emerald-400 font-semibold">Active & Seeded</span>
+                            <td className={TD}>
+                              <div className="font-mono text-xs text-slate-200">{client.dbName}</div>
+                              <div className="mt-1 text-xs">
+                                {client.dbProvisioned ? (
+                                  <Badge tone="green">Provisioned</Badge>
                                 ) : (
-                                  <span className="text-amber-400 font-semibold">Pending</span>
+                                  <Badge tone="amber">Pending</Badge>
                                 )}
                               </div>
-                            </div>
-                          </td>
+                            </td>
 
-                          <td className="px-6 py-4">
-                            <div className="space-y-1">
-                              <div className="flex items-center space-x-2">
+                            <td className={TD}>
+                              <div className="flex items-center gap-2">
                                 <span
-                                  className="w-3 h-3 rounded-full shrink-0 shadow-sm"
+                                  className="h-2.5 w-2.5 shrink-0 rounded-full"
                                   style={{ backgroundColor: template?.previewColor || '#10B981' }}
                                 />
-                                <span className="font-medium text-white">{template?.name || client.templateId}</span>
+                                <span className="text-slate-100">{template?.name || client.templateId}</span>
                               </div>
-                              <div className="text-[10px] text-slate-400">
-                                Style: <span className="text-slate-300 font-mono">{template?.layoutStyle}</span>
+                              <div className="mt-0.5 font-mono text-xs text-slate-500">{template?.layoutStyle}</div>
+                            </td>
+
+                            <td className={TD}>
+                              <div className="text-slate-100 capitalize">{client.subscription?.plan || 'starter'}</div>
+                              <div className="mt-0.5 text-xs text-slate-500">
+                                ₹{(client.subscription?.priceMonthly || 0).toLocaleString()} / mo
                               </div>
-                            </div>
-                          </td>
+                            </td>
 
-                          <td className="px-6 py-4">
-                            <span className="px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider bg-slate-800 text-slate-300 border border-slate-700">
-                              {client.subscription?.plan || 'starter'}
-                            </span>
-                            <div className="text-[10px] text-slate-400 mt-1">
-                              ₹{(client.subscription?.priceMonthly || 0).toLocaleString()}/mo
-                            </div>
-                          </td>
+                            <td className={TD}>
+                              {client.status === 'active' ? (
+                                <Badge tone="green">Active</Badge>
+                              ) : client.status === 'suspended' ? (
+                                <Badge tone="red">Suspended</Badge>
+                              ) : (
+                                <Badge tone="amber">{client.status}</Badge>
+                              )}
+                            </td>
 
-                          <td className="px-6 py-4">
-                            <span
-                              className={`px-2.5 py-0.5 rounded-full text-[10px] font-semibold border ${
-                                client.status === 'active'
-                                  ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
-                                  : client.status === 'suspended'
-                                  ? 'bg-rose-500/10 text-rose-400 border-rose-500/30'
-                                  : 'bg-amber-500/10 text-amber-400 border-amber-500/30'
-                              }`}
-                            >
-                              {client.status}
-                            </span>
-                          </td>
-
-                          <td className="px-6 py-4 text-right">
-                            <div className="flex items-center justify-end space-x-1.5">
-                              {/* Open 12-Panel Theme Studio */}
-                              <button
-                                onClick={() => handleOpenStudio(client)}
-                                className="p-1.5 rounded-lg bg-emerald-950/60 hover:bg-emerald-900/60 text-emerald-400 border border-emerald-800/60 transition"
-                                title="Open 12-Panel Live Theme Studio"
-                              >
-                                <Sliders className="w-3.5 h-3.5" />
-                              </button>
-
-                              {/* Impersonate Admin */}
-                              <button
-                                onClick={() => handleImpersonateAdmin(client)}
-                                className="p-1.5 rounded-lg bg-purple-950/60 hover:bg-purple-900/60 text-purple-300 border border-purple-800/60 transition"
-                                title="Impersonate Tenant Admin"
-                              >
-                                <UserCheck className="w-3.5 h-3.5" />
-                              </button>
-
-                              {/* Duplicate Tenant */}
-                              <button
-                                onClick={() => handleDuplicateClient(client)}
-                                className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition"
-                                title="Duplicate Tenant & DB"
-                              >
-                                <Copy className="w-3.5 h-3.5" />
-                              </button>
-
-                              {/* Inspect DB */}
-                              <button
-                                onClick={() => handleInspectDb(client)}
-                                className="p-1.5 rounded-lg bg-cyan-950/60 hover:bg-cyan-900/60 text-cyan-300 border border-cyan-800/60 transition"
-                                title="Inspect Database"
-                              >
-                                <Database className="w-3.5 h-3.5" />
-                              </button>
-
-                              {/* Toggle Status (Active / Suspend) */}
-                              <button
-                                onClick={() => handleToggleStatus(client)}
-                                className={`p-1.5 rounded-lg border transition ${
-                                  client.status === 'active'
-                                    ? 'bg-amber-950/60 hover:bg-amber-900/60 text-amber-400 border-amber-800/60'
-                                    : 'bg-emerald-950/60 hover:bg-emerald-900/60 text-emerald-400 border-emerald-800/60'
-                                }`}
-                                title={client.status === 'active' ? 'Suspend Tenant' : 'Activate Tenant'}
-                              >
-                                <Power className="w-3.5 h-3.5" />
-                              </button>
-
-                              {/* Delete */}
-                              <button
-                                onClick={() => handleDeleteClient(client)}
-                                className="p-1.5 rounded-lg bg-rose-950/60 hover:bg-rose-900/60 text-rose-400 border border-rose-800/60 transition"
-                                title="Delete Tenant"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+                            <td className={`${TD} text-right`}>
+                              <div className="flex items-center justify-end gap-1.5">
+                                <button
+                                  onClick={() => handleOpenStudio(client)}
+                                  className={BTN_ICON}
+                                  title="Open Theme Studio"
+                                >
+                                  <Sliders className="h-4 w-4" />
+                                </button>
+                                <button
+                                  onClick={() => handleImpersonateAdmin(client)}
+                                  disabled={actionLoading}
+                                  className={BTN_ICON}
+                                  title="Impersonate tenant admin"
+                                >
+                                  <UserCheck className="h-4 w-4" />
+                                </button>
+                                <button
+                                  onClick={() => handleDuplicateClient(client)}
+                                  disabled={actionLoading}
+                                  className={BTN_ICON}
+                                  title="Duplicate tenant & database"
+                                >
+                                  <Copy className="h-4 w-4" />
+                                </button>
+                                <button
+                                  onClick={() => handleInspectDb(client)}
+                                  className={BTN_ICON}
+                                  title="Inspect database"
+                                >
+                                  <Database className="h-4 w-4" />
+                                </button>
+                                <button
+                                  onClick={() => handleToggleStatus(client)}
+                                  disabled={actionLoading}
+                                  className={`${BTN_ICON} ${
+                                    client.status === 'active' ? 'hover:text-amber-400' : 'hover:text-emerald-400'
+                                  }`}
+                                  title={client.status === 'active' ? 'Suspend tenant' : 'Activate tenant'}
+                                >
+                                  <Power className="h-4 w-4" />
+                                </button>
+                                <button
+                                  onClick={() => handleDeleteClient(client)}
+                                  disabled={actionLoading}
+                                  className={`${BTN_ICON} hover:border-rose-500/50 hover:text-rose-400`}
+                                  title="Delete tenant"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                      {filteredClients.length === 0 && (
+                        <EmptyRow colSpan={6}>
+                          {clients.length === 0
+                            ? 'No clients yet. Create your first client to get started.'
+                            : 'No clients match your filters.'}
+                        </EmptyRow>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
-          </div>
-        )}
+          )}
 
-        {/* TAB 2: 12-PANEL LIVE THEME STUDIO */}
-        {activeTab === 'studio' && (
-          <ThemePreviewStudio
-            tenant={selectedClientForStudio || clients[0]}
-            onSave={async (tokens, overrides) => {
-              const target = selectedClientForStudio || clients[0];
-              if (!target) return;
-              try {
-                setActionLoading(true);
-                const res = await fetch(`/api/clients/${target.id}`, {
-                  method: 'PUT',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    branding: {
-                      ...target.branding,
-                      primaryColor: tokens.primaryColor,
-                      secondaryColor: tokens.secondaryColor,
-                      accentColor: tokens.accentColor,
-                      panelOverrides: overrides,
-                    },
-                  }),
-                });
-                const data = await res.json();
-                if (data.success) {
-                  showToast('success', `Branding saved for ${target.name}!`);
-                  fetchClients();
+          {/* TAB: THEME STUDIO */}
+          {activeTab === 'studio' && (
+            <ThemePreviewStudio
+              tenant={selectedClientForStudio || clients[0]}
+              onSave={async (tokens, overrides) => {
+                const target = selectedClientForStudio || clients[0];
+                if (!target) return;
+                try {
+                  setActionLoading(true);
+                  const res = await fetch(`/api/clients/${target.id}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      branding: {
+                        ...target.branding,
+                        primaryColor: tokens.primaryColor,
+                        secondaryColor: tokens.secondaryColor,
+                        accentColor: tokens.accentColor,
+                        panelOverrides: overrides,
+                      },
+                    }),
+                  });
+                  const data = await res.json();
+                  if (data.success) {
+                    showToast('success', `Branding saved for ${target.name}!`);
+                    fetchClients();
+                  }
+                } catch (err) {
+                  showToast('error', 'Failed to save branding');
+                } finally {
+                  setActionLoading(false);
                 }
-              } catch (err) {
-                showToast('error', 'Failed to save branding');
-              } finally {
-                setActionLoading(false);
-              }
-            }}
-          />
-        )}
+              }}
+            />
+          )}
 
-        {/* TAB 3: TEMPLATES CATALOG */}
-        {activeTab === 'templates' && (
-          <div className="space-y-6">
-            <div>
-              <h2 className="text-base font-bold text-white">15 Pre-Engineered Design System Templates</h2>
-              <p className="text-xs text-slate-400 mt-0.5">
-                Every template is wired with dynamic tokens across all 12 web and mobile applications.
-              </p>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {/* TAB: TEMPLATES */}
+          {activeTab === 'templates' && (
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
               {AVAILABLE_TEMPLATES.map((tmpl) => {
                 const assignedCount = clients.filter((c) => c.templateId === tmpl.id).length;
                 return (
-                  <div
-                    key={tmpl.id}
-                    className="p-6 rounded-2xl bg-[#101625] border border-slate-800/80 hover:border-slate-700 transition shadow-xl space-y-4 relative overflow-hidden flex flex-col justify-between"
-                  >
-                    <div
-                      className="absolute top-0 left-0 right-0 h-1.5"
-                      style={{ backgroundColor: tmpl.previewColor }}
-                    />
-
-                    <div>
-                      <div className="flex items-start justify-between">
-                        <div>
-                          <div className="flex items-center space-x-2">
-                            <h3 className="text-base font-bold text-white">{tmpl.name}</h3>
-                            <span
-                              className="px-2 py-0.5 text-[10px] font-semibold rounded-full border"
-                              style={{
-                                backgroundColor: `${tmpl.previewColor}15`,
-                                color: tmpl.previewColor,
-                                borderColor: `${tmpl.previewColor}40`,
-                              }}
-                            >
-                              {tmpl.badge}
-                            </span>
+                  <div key={tmpl.id} className={`${CARD} flex flex-col overflow-hidden`}>
+                    <div className="h-1" style={{ backgroundColor: tmpl.previewColor }} />
+                    <div className="flex flex-1 flex-col gap-4 p-5">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <h3 className="font-semibold text-white">{tmpl.name}</h3>
+                            <Badge tone="violet">{tmpl.badge}</Badge>
                           </div>
-                          <p className="text-xs text-slate-400 mt-1 leading-relaxed">{tmpl.description}</p>
+                          <p className="mt-1 text-xs leading-relaxed text-slate-400">{tmpl.description}</p>
                         </div>
-
-                        <div className="text-right">
-                          <span className="text-[11px] font-bold text-slate-400">Tenants</span>
-                          <div className="text-xl font-extrabold text-white">{assignedCount}</div>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center space-x-3 pt-3">
-                        <span className="text-[11px] text-slate-400 font-medium">Palette:</span>
-                        <div className="flex items-center space-x-1.5">
-                          <div
-                            className="w-5 h-5 rounded-full border border-white/20"
-                            style={{ backgroundColor: tmpl.tokens.primaryColor }}
-                          />
-                          <div
-                            className="w-5 h-5 rounded-full border border-white/20"
-                            style={{ backgroundColor: tmpl.tokens.secondaryColor }}
-                          />
-                          <div
-                            className="w-5 h-5 rounded-full border border-white/20"
-                            style={{ backgroundColor: tmpl.tokens.accentColor }}
-                          />
+                        <div className="shrink-0 text-right">
+                          <div className="text-xs text-slate-500">Tenants</div>
+                          <div className="text-lg font-semibold text-white">{assignedCount}</div>
                         </div>
                       </div>
 
-                      <div className="p-3 rounded-xl bg-slate-900/60 border border-slate-800 text-[11px] mt-3">
-                        <span className="text-slate-400 font-medium">Recommended: </span>
+                      <div className="flex items-center gap-3">
+                        <span className="text-xs text-slate-500">Palette</span>
+                        <div className="flex items-center gap-1.5">
+                          <span className="h-4 w-4 rounded-full border border-white/10" style={{ backgroundColor: tmpl.tokens.primaryColor }} />
+                          <span className="h-4 w-4 rounded-full border border-white/10" style={{ backgroundColor: tmpl.tokens.secondaryColor }} />
+                          <span className="h-4 w-4 rounded-full border border-white/10" style={{ backgroundColor: tmpl.tokens.accentColor }} />
+                        </div>
+                      </div>
+
+                      <div className="rounded-lg border border-slate-800 bg-slate-900/50 px-3 py-2 text-xs">
+                        <span className="text-slate-500">Recommended for: </span>
                         <span className="text-slate-200">{tmpl.recommendedFor}</span>
                       </div>
-                    </div>
 
-                    <div className="pt-2 border-t border-slate-800">
-                      <button
-                        onClick={() => {
-                          setSelectedClientForStudio(clients[0] || null);
-                          setActiveTab('studio');
-                        }}
-                        className="w-full py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-xl flex items-center justify-center space-x-1.5 transition"
-                      >
-                        <Sliders className="w-3.5 h-3.5" />
-                        <span>Inspect in 12-Panel Studio</span>
-                      </button>
+                      <div className="mt-auto border-t border-slate-800 pt-4">
+                        <button
+                          onClick={() => {
+                            setSelectedClientForStudio(clients[0] || null);
+                            setActiveTab('studio');
+                          }}
+                          className={`${BTN_SECONDARY} w-full`}
+                        >
+                          <Sliders className="h-4 w-4" />
+                          Inspect in Theme Studio
+                        </button>
+                      </div>
                     </div>
                   </div>
                 );
               })}
             </div>
-          </div>
-        )}
+          )}
 
-        {/* TAB 4: CUSTOM DOMAINS & SSL */}
-        {activeTab === 'domains' && (
-          <div className="space-y-6 animate-fadeIn">
-            <div>
-              <h2 className="text-base font-bold text-white">Custom Domain Mapping & Automated DNS Engine</h2>
-              <p className="text-xs text-slate-400 mt-0.5">
-                Map custom client hostnames (e.g. sell.gadgethub.in) to their white-label storefront and admin panel.
-              </p>
-            </div>
-
-            {/* Register Domain Form */}
-            <form onSubmit={handleAddDomain} className="p-5 rounded-2xl bg-[#101625] border border-slate-800/80 shadow-xl space-y-4">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-emerald-400">Map New Domain</h3>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div>
-                  <label className="text-[11px] font-medium text-slate-300">Select Client Tenant</label>
-                  <select
-                    value={newDomainTenantId}
-                    onChange={(e) => setNewDomainTenantId(e.target.value)}
-                    className="w-full bg-[#141C2E] border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-emerald-500 mt-1"
-                  >
-                    {clients.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name} ({c.slug}.camsik.com)
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="sm:col-span-2">
-                  <label className="text-[11px] font-medium text-slate-300">Custom Domain Hostname</label>
-                  <div className="flex items-center space-x-2 mt-1">
-                    <input
-                      type="text"
-                      required
-                      placeholder="e.g. sell.gadgethub.in"
-                      value={newDomainInput}
-                      onChange={(e) => setNewDomainInput(e.target.value)}
-                      className="w-full bg-[#141C2E] border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 font-mono"
-                    />
-                    <button
-                      type="submit"
-                      disabled={actionLoading}
-                      className="px-5 py-2 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-black font-bold text-xs rounded-xl shadow-lg shadow-emerald-500/20 whitespace-nowrap transition"
+          {/* TAB: DOMAINS */}
+          {activeTab === 'domains' && (
+            <div className="space-y-4">
+              <form onSubmit={handleAddDomain} className={`${CARD} p-5`}>
+                <h2 className="text-sm font-semibold text-white">Map a new domain</h2>
+                <p className="mt-1 text-xs text-slate-400">
+                  Point the hostname&apos;s CNAME to <span className="font-mono text-slate-300">camsik-proxy.camsik.com</span>, then verify.
+                </p>
+                <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                  <div>
+                    <label className={LABEL}>Tenant</label>
+                    <select
+                      value={newDomainTenantId}
+                      onChange={(e) => setNewDomainTenantId(e.target.value)}
+                      className={INPUT}
                     >
-                      Add Domain
-                    </button>
+                      {clients.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name} ({c.slug}.camsik.com)
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className={LABEL}>Hostname</label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        required
+                        placeholder="sell.gadgethub.in"
+                        value={newDomainInput}
+                        onChange={(e) => setNewDomainInput(e.target.value)}
+                        className={`${INPUT} font-mono`}
+                      />
+                      <button type="submit" disabled={actionLoading} className={`${BTN_PRIMARY} whitespace-nowrap`}>
+                        Add domain
+                      </button>
+                    </div>
                   </div>
                 </div>
-              </div>
-            </form>
+              </form>
 
-            {/* Domain Records Table */}
-            <div className="bg-[#101625] border border-slate-800/80 rounded-2xl overflow-hidden shadow-xl">
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs">
-                  <thead className="bg-[#141C2E] text-slate-400 uppercase font-semibold text-[10px] tracking-wider border-b border-slate-800">
-                    <tr>
-                      <th className="px-6 py-4">Domain Hostname</th>
-                      <th className="px-6 py-4">Assigned Tenant</th>
-                      <th className="px-6 py-4">DNS Configuration Required</th>
-                      <th className="px-6 py-4">Status & SSL</th>
-                      <th className="px-6 py-4 text-right">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-800/60 text-slate-300">
-                    {domains.map((dom) => (
-                      <tr key={dom.id} className="hover:bg-slate-800/30 transition">
-                        <td className="px-6 py-4">
-                          <div className="flex items-center space-x-2 font-mono text-white text-xs font-semibold">
-                            <Globe className="w-3.5 h-3.5 text-emerald-400" />
-                            <span>{dom.domain}</span>
-                          </div>
-                        </td>
-
-                        <td className="px-6 py-4">
-                          <span className="font-semibold text-white">{dom.tenantSlug}</span>
-                        </td>
-
-                        <td className="px-6 py-4 font-mono text-[11px] text-slate-400">
-                          <div>CNAME &rarr; <span className="text-cyan-300">camsik-proxy.camsik.com</span></div>
-                        </td>
-
-                        <td className="px-6 py-4">
-                          <div className="flex items-center space-x-2">
-                            <span
-                              className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
-                                dom.status === 'active'
-                                  ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
-                                  : 'bg-amber-500/10 text-amber-400 border-amber-500/30'
-                              }`}
-                            >
-                              {dom.status}
-                            </span>
-                            <span className="text-[10px] text-slate-400">SSL: {dom.sslStatus}</span>
-                          </div>
-                        </td>
-
-                        <td className="px-6 py-4 text-right">
-                          <button
-                            onClick={() => handleVerifyDomain(dom.domain)}
-                            disabled={actionLoading}
-                            className="px-3 py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 text-xs font-semibold transition"
-                          >
-                            Verify DNS
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                    {domains.length === 0 && (
+              <div className={`${CARD} overflow-hidden`}>
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[720px]">
+                    <thead className={TABLE_HEAD}>
                       <tr>
-                        <td colSpan={5} className="px-6 py-8 text-center text-slate-400 text-xs">
-                          No custom domains registered yet. Use the form above to connect custom client hostnames.
-                        </td>
+                        <th className={TH}>Hostname</th>
+                        <th className={TH}>Tenant</th>
+                        <th className={TH}>DNS record</th>
+                        <th className={TH}>Status</th>
+                        <th className={`${TH} text-right`}>Actions</th>
                       </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* TAB 5: MOBILE APP BUILD GENERATOR */}
-        {activeTab === 'builds' && (
-          <div className="space-y-6 animate-fadeIn">
-            <div>
-              <h2 className="text-base font-bold text-white">Mobile App Build Studio (Android & iOS)</h2>
-              <p className="text-xs text-slate-400 mt-0.5">
-                Generate branded Android APKs, Play Store AAB bundles, and iOS IPAs for all 4 mobile codebases.
-              </p>
-            </div>
-
-            {/* Build Trigger Form */}
-            <form onSubmit={handleTriggerBuild} className="p-5 rounded-2xl bg-[#101625] border border-slate-800/80 shadow-xl space-y-4">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-cyan-400">Trigger New Compilation Job</h3>
-              <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-                <div>
-                  <label className="text-[11px] font-medium text-slate-300">Target Tenant</label>
-                  <select
-                    value={buildTenantId}
-                    onChange={(e) => setBuildTenantId(e.target.value)}
-                    className="w-full bg-[#141C2E] border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-400 mt-1"
-                  >
-                    {clients.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="text-[11px] font-medium text-slate-300">Application Panel</label>
-                  <select
-                    value={buildPanelType}
-                    onChange={(e) => setBuildPanelType(e.target.value)}
-                    className="w-full bg-[#141C2E] border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-400 mt-1"
-                  >
-                    <option value="user_android">User App (Android APK/AAB)</option>
-                    <option value="user_ios">User App (iOS IPA)</option>
-                    <option value="partner_android">Partner POS (Android)</option>
-                    <option value="partner_ios">Partner POS (iOS)</option>
-                    <option value="delivery_android">Delivery Rider (Android)</option>
-                    <option value="delivery_ios">Delivery Rider (iOS)</option>
-                    <option value="admin_android">Admin Mobile (Android)</option>
-                    <option value="admin_ios">Admin Mobile (iOS)</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="text-[11px] font-medium text-slate-300">Artifact Format</label>
-                  <select
-                    value={buildType}
-                    onChange={(e) => setBuildType(e.target.value)}
-                    className="w-full bg-[#141C2E] border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-cyan-400 mt-1"
-                  >
-                    <option value="release_apk">Release APK (Direct Sideload)</option>
-                    <option value="aab">Android App Bundle (AAB - Play Store)</option>
-                    <option value="ipa">iOS IPA (TestFlight / App Store)</option>
-                  </select>
-                </div>
-
-                <div className="flex items-end">
-                  <button
-                    type="submit"
-                    disabled={actionLoading}
-                    className="w-full py-2 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-black font-bold text-xs rounded-xl shadow-lg shadow-cyan-500/20 transition flex items-center justify-center space-x-1.5"
-                  >
-                    <Cpu className="w-4 h-4" />
-                    <span>Compile Build</span>
-                  </button>
-                </div>
-              </div>
-            </form>
-
-            {/* Build History Table */}
-            <div className="bg-[#101625] border border-slate-800/80 rounded-2xl overflow-hidden shadow-xl">
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs">
-                  <thead className="bg-[#141C2E] text-slate-400 uppercase font-semibold text-[10px] tracking-wider border-b border-slate-800">
-                    <tr>
-                      <th className="px-6 py-4">Build Job ID</th>
-                      <th className="px-6 py-4">Tenant & Application</th>
-                      <th className="px-6 py-4">Artifact Format</th>
-                      <th className="px-6 py-4">Compilation Status</th>
-                      <th className="px-6 py-4 text-right">Artifact & Logs</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-800/60 text-slate-300">
-                    {builds.map((b) => (
-                      <tr key={b.id} className="hover:bg-slate-800/30 transition">
-                        <td className="px-6 py-4 font-mono text-[11px] text-cyan-300">
-                          {b.id}
-                        </td>
-
-                        <td className="px-6 py-4">
-                          <div className="font-semibold text-white">{b.appName || b.tenantSlug}</div>
-                          <div className="text-[10px] text-slate-400 font-mono mt-0.5">{b.panelType}</div>
-                        </td>
-
-                        <td className="px-6 py-4">
-                          <span className="px-2 py-0.5 rounded-lg text-[10px] font-bold uppercase font-mono bg-slate-800 text-slate-200">
-                            {b.buildType} ({b.artifactSizeMb} MB)
-                          </span>
-                        </td>
-
-                        <td className="px-6 py-4">
-                          <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 flex items-center space-x-1 w-fit">
-                            <CheckCircle2 className="w-3 h-3 text-emerald-400" />
-                            <span>{b.status}</span>
-                          </span>
-                        </td>
-
-                        <td className="px-6 py-4 text-right">
-                          <div className="flex items-center justify-end space-x-2">
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/70">
+                      {domains.map((dom) => (
+                        <tr key={dom.id} className="hover:bg-slate-800/30 transition">
+                          <td className={TD}>
+                            <div className="flex items-center gap-2 font-mono text-sm text-white">
+                              <Globe className="h-3.5 w-3.5 text-slate-500" />
+                              {dom.domain}
+                            </div>
+                          </td>
+                          <td className={`${TD} font-medium text-slate-100`}>{dom.tenantSlug}</td>
+                          <td className={`${TD} font-mono text-xs`}>
+                            CNAME → <span className="text-cyan-400">camsik-proxy.camsik.com</span>
+                          </td>
+                          <td className={TD}>
+                            <div className="flex items-center gap-2">
+                              {dom.status === 'active' ? (
+                                <Badge tone="green">Active</Badge>
+                              ) : (
+                                <Badge tone="amber">{dom.status}</Badge>
+                              )}
+                              <span className="text-xs text-slate-500">SSL: {dom.sslStatus}</span>
+                            </div>
+                          </td>
+                          <td className={`${TD} text-right`}>
                             <button
-                              onClick={() => setSelectedBuildLogs(b.buildLogs || [])}
-                              className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs flex items-center space-x-1 transition"
+                              onClick={() => handleVerifyDomain(dom.domain)}
+                              disabled={actionLoading}
+                              className={BTN_SECONDARY}
                             >
-                              <Terminal className="w-3 h-3" />
-                              <span>Logs</span>
+                              Verify DNS
                             </button>
+                          </td>
+                        </tr>
+                      ))}
+                      {domains.length === 0 && (
+                        <EmptyRow colSpan={5}>No custom domains yet. Add one above to connect a hostname.</EmptyRow>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
 
-                            {b.artifactUrl && (
-                              <a
-                                href={b.artifactUrl}
-                                download
-                                className="px-3 py-1.5 rounded-lg bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/40 text-xs font-semibold flex items-center space-x-1 transition"
-                              >
-                                <Download className="w-3 h-3" />
-                                <span>Download</span>
-                              </a>
-                            )}
+          {/* TAB: MOBILE BUILDS */}
+          {activeTab === 'builds' && (
+            <div className="space-y-4">
+              <form onSubmit={handleTriggerBuild} className={`${CARD} p-5`}>
+                <h2 className="text-sm font-semibold text-white">New build</h2>
+                <p className="mt-1 text-xs text-slate-400">Compile a branded artifact for a tenant application.</p>
+                <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-4">
+                  <div>
+                    <label className={LABEL}>Tenant</label>
+                    <select value={buildTenantId} onChange={(e) => setBuildTenantId(e.target.value)} className={INPUT}>
+                      {clients.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className={LABEL}>Application</label>
+                    <select value={buildPanelType} onChange={(e) => setBuildPanelType(e.target.value)} className={INPUT}>
+                      <option value="user_android">User App (Android)</option>
+                      <option value="user_ios">User App (iOS)</option>
+                      <option value="partner_android">Partner POS (Android)</option>
+                      <option value="partner_ios">Partner POS (iOS)</option>
+                      <option value="delivery_android">Delivery Rider (Android)</option>
+                      <option value="delivery_ios">Delivery Rider (iOS)</option>
+                      <option value="admin_android">Admin Mobile (Android)</option>
+                      <option value="admin_ios">Admin Mobile (iOS)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className={LABEL}>Format</label>
+                    <select value={buildType} onChange={(e) => setBuildType(e.target.value)} className={INPUT}>
+                      <option value="release_apk">Release APK (sideload)</option>
+                      <option value="aab">Android App Bundle (Play Store)</option>
+                      <option value="ipa">iOS IPA (TestFlight / App Store)</option>
+                    </select>
+                  </div>
+                  <div className="flex items-end">
+                    <button type="submit" disabled={actionLoading} className={`${BTN_PRIMARY} w-full`}>
+                      <Cpu className="h-4 w-4" />
+                      Compile build
+                    </button>
+                  </div>
+                </div>
+              </form>
+
+              <div className={`${CARD} overflow-hidden`}>
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[720px]">
+                    <thead className={TABLE_HEAD}>
+                      <tr>
+                        <th className={TH}>Build ID</th>
+                        <th className={TH}>Tenant / application</th>
+                        <th className={TH}>Format</th>
+                        <th className={TH}>Status</th>
+                        <th className={`${TH} text-right`}>Artifacts</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/70">
+                      {builds.map((b) => (
+                        <tr key={b.id} className="hover:bg-slate-800/30 transition">
+                          <td className={`${TD} font-mono text-xs text-slate-400`}>{b.id}</td>
+                          <td className={TD}>
+                            <div className="font-medium text-white">{b.appName || b.tenantSlug}</div>
+                            <div className="mt-0.5 font-mono text-xs text-slate-500">{b.panelType}</div>
+                          </td>
+                          <td className={TD}>
+                            <Badge tone="slate">
+                              {b.buildType} · {b.artifactSizeMb} MB
+                            </Badge>
+                          </td>
+                          <td className={TD}>
+                            <Badge tone="green">
+                              <CheckCircle2 className="h-3 w-3" />
+                              {b.status}
+                            </Badge>
+                          </td>
+                          <td className={`${TD} text-right`}>
+                            <div className="flex items-center justify-end gap-2">
+                              <button onClick={() => setSelectedBuildLogs(b.buildLogs || [])} className={BTN_SECONDARY}>
+                                <Terminal className="h-3.5 w-3.5" />
+                                Logs
+                              </button>
+                              {b.artifactUrl && (
+                                <a href={b.artifactUrl} download className={BTN_SECONDARY}>
+                                  <Download className="h-3.5 w-3.5" />
+                                  Download
+                                </a>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                      {builds.length === 0 && (
+                        <EmptyRow colSpan={5}>No builds yet. Select a tenant and compile the first build.</EmptyRow>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB: DATABASES */}
+          {activeTab === 'databases' && (
+            <div className={`${CARD} overflow-hidden`}>
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[680px]">
+                  <thead className={TABLE_HEAD}>
+                    <tr>
+                      <th className={TH}>Tenant</th>
+                      <th className={TH}>Database</th>
+                      <th className={TH}>Plan</th>
+                      <th className={TH}>Provisioned</th>
+                      <th className={`${TH} text-right`}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/70">
+                    {clients.map((c) => (
+                      <tr key={c.id} className="hover:bg-slate-800/30 transition">
+                        <td className={`${TD} font-medium text-white`}>{c.name}</td>
+                        <td className={`${TD} font-mono text-xs text-slate-300`}>{c.dbName}</td>
+                        <td className={`${TD} capitalize`}>{c.subscription?.plan || 'starter'}</td>
+                        <td className={TD}>
+                          {c.dbProvisioned ? <Badge tone="green">Yes</Badge> : <Badge tone="amber">Pending</Badge>}
+                        </td>
+                        <td className={`${TD} text-right`}>
+                          <div className="flex items-center justify-end gap-2">
+                            <button onClick={() => handleInspectDb(c)} className={BTN_SECONDARY}>
+                              <Database className="h-3.5 w-3.5" />
+                              Inspect
+                            </button>
+                            <button
+                              onClick={() => handleReprovisionDb(c.id)}
+                              disabled={actionLoading}
+                              className={BTN_ICON}
+                              title="Re-seed diagnostic catalog"
+                            >
+                              <RefreshCw className={`h-4 w-4 ${actionLoading ? 'animate-spin' : ''}`} />
+                            </button>
                           </div>
                         </td>
                       </tr>
                     ))}
-                    {builds.length === 0 && (
-                      <tr>
-                        <td colSpan={5} className="px-6 py-8 text-center text-slate-400 text-xs">
-                          No mobile builds generated yet. Select a tenant and trigger your first automated compilation.
-                        </td>
-                      </tr>
-                    )}
+                    {clients.length === 0 && <EmptyRow colSpan={5}>No databases provisioned yet.</EmptyRow>}
                   </tbody>
                 </table>
               </div>
             </div>
-          </div>
-        )}
+          )}
+        </main>
+      </div>
 
-        {/* TAB 6: DATABASES CLUSTER */}
-        {activeTab === 'databases' && (
-          <div className="space-y-6">
-            <div>
-              <h2 className="text-base font-bold text-white">MongoDB Cluster Database Isolation</h2>
-              <p className="text-xs text-slate-400 mt-0.5">
-                Every tenant is provisioned with its own physically separated MongoDB database (`casmik_tenant_slug`).
-              </p>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {clients.map((c) => (
-                <div
-                  key={c.id}
-                  className="p-5 rounded-2xl bg-[#101625] border border-slate-800/80 hover:border-slate-700 transition shadow-lg space-y-3"
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="font-semibold text-sm text-white">{c.name}</div>
-                    <span className="px-2 py-0.5 text-[10px] font-semibold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-full flex items-center space-x-1">
-                      <Radio className="w-3 h-3 text-emerald-400 animate-pulse" />
-                      <span>Dedicated</span>
-                    </span>
-                  </div>
-
-                  <div className="p-2.5 rounded-xl bg-slate-950/80 border border-slate-800 font-mono text-[11px] text-cyan-300 break-all">
-                    {c.dbName}
-                  </div>
-
-                  <div className="text-[11px] text-slate-400 flex items-center justify-between pt-1">
-                    <span>Provisioned: {c.dbProvisioned ? 'Yes (Seeded)' : 'Pending'}</span>
-                    <span>Plan: {c.subscription?.plan}</span>
-                  </div>
-
-                  <div className="pt-2 flex items-center space-x-2">
-                    <button
-                      onClick={() => handleInspectDb(c)}
-                      className="flex-1 py-1.5 rounded-lg bg-cyan-900/40 hover:bg-cyan-800/50 text-cyan-300 border border-cyan-700/50 text-xs font-medium transition"
-                    >
-                      Inspect Collections
-                    </button>
-                    <button
-                      onClick={() => handleReprovisionDb(c.id)}
-                      disabled={actionLoading}
-                      className="py-1.5 px-3 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-xs transition"
-                      title="Re-seed Diagnostic Questions & Categories"
-                    >
-                      <RefreshCw className={`w-3.5 h-3.5 ${actionLoading ? 'animate-spin' : ''}`} />
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-      </main>
-
-      {/* 5-STEP TENANT ONBOARDING WIZARD */}
+      {/* Onboarding wizard */}
       <TenantCreationWizard
         isOpen={showWizard}
         onClose={() => setShowWizard(false)}
         onSuccess={() => {
           setShowWizard(false);
-          showToast('success', 'Tenant provisioned and catalog seeded successfully!');
+          showToast('success', 'Client provisioned and catalog seeded.');
           fetchClients();
         }}
       />
 
-      {/* INSPECT DB MODAL */}
+      {/* Database inspector */}
       {selectedClientForDb && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-[#10172A] border border-slate-800 rounded-2xl w-full max-w-lg p-6 shadow-2xl space-y-5">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <div className="flex items-center space-x-3">
-                <Database className="w-5 h-5 text-cyan-400" />
-                <div>
-                  <h3 className="text-base font-bold text-white">Database Inspector</h3>
-                  <p className="text-xs text-slate-400">{selectedClientForDb.name}</p>
-                </div>
-              </div>
-              <button
-                onClick={() => setSelectedClientForDb(null)}
-                className="text-slate-400 hover:text-white p-1"
-              >
-                ✕
-              </button>
-            </div>
-
-            <div className="space-y-4">
-              <div className="p-3 rounded-xl bg-cyan-950/40 border border-cyan-800/60 font-mono text-xs text-cyan-300">
-                DB Name: <span className="font-bold">{selectedClientForDb.dbName}</span>
-              </div>
-
-              {dbStatusDetails ? (
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between text-xs text-slate-300">
-                    <span>Connection Status:</span>
-                    <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 font-semibold">
-                      Connected & Healthy
-                    </span>
-                  </div>
-
-                  <div className="text-xs font-semibold text-slate-400 pt-2">Collections in this Database:</div>
-                  <div className="divide-y divide-slate-800 border border-slate-800 rounded-xl overflow-hidden bg-slate-900/60 max-h-56 overflow-y-auto">
-                    {dbStatusDetails.collections?.length > 0 ? (
-                      dbStatusDetails.collections.map((col: any) => (
-                        <div key={col.name} className="flex items-center justify-between px-3.5 py-2 text-xs">
-                          <span className="font-mono text-slate-200">{col.name}</span>
-                          <span className="text-slate-400 font-semibold">{col.count} docs</span>
-                        </div>
-                      ))
-                    ) : (
-                      <div className="p-3 text-xs text-slate-400 text-center">No collections yet.</div>
-                    )}
-                  </div>
-                </div>
-              ) : (
-                <div className="py-6 flex flex-col items-center justify-center text-slate-400 space-y-2">
-                  <RefreshCw className="w-5 h-5 animate-spin text-cyan-400" />
-                  <span className="text-xs">Inspecting database collections...</span>
-                </div>
-              )}
-            </div>
-
-            <div className="border-t border-slate-800 pt-3 flex items-center justify-between">
+        <Modal
+          title="Database inspector"
+          icon={Database}
+          onClose={() => setSelectedClientForDb(null)}
+          footer={
+            <>
               <button
                 onClick={() => handleReprovisionDb(selectedClientForDb.id)}
                 disabled={actionLoading}
-                className="px-3 py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 text-xs font-semibold flex items-center space-x-1.5"
+                className={BTN_SECONDARY}
               >
-                <RefreshCw className={`w-3.5 h-3.5 ${actionLoading ? 'animate-spin' : ''}`} />
-                <span>Re-seed Diagnostic Catalog</span>
+                <RefreshCw className={`h-3.5 w-3.5 ${actionLoading ? 'animate-spin' : ''}`} />
+                Re-seed catalog
               </button>
-              <button
-                onClick={() => setSelectedClientForDb(null)}
-                className="px-4 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs"
-              >
-                Close
+              <button onClick={() => setSelectedClientForDb(null)} className={BTN_PRIMARY}>
+                Done
               </button>
+            </>
+          }
+        >
+          <div className="space-y-4">
+            <div className="flex items-center justify-between text-sm">
+              <div>
+                <div className="font-medium text-white">{selectedClientForDb.name}</div>
+                <div className="mt-0.5 font-mono text-xs text-slate-400">{selectedClientForDb.dbName}</div>
+              </div>
+              {dbStatusDetails ? <Badge tone="green">Connected</Badge> : <Badge tone="slate">Loading</Badge>}
             </div>
+
+            {dbStatusDetails ? (
+              <div className="overflow-hidden rounded-lg border border-slate-800">
+                <div className="border-b border-slate-800 bg-slate-900/60 px-3.5 py-2 text-xs font-medium text-slate-400">
+                  Collections
+                </div>
+                <div className="max-h-64 divide-y divide-slate-800/70 overflow-y-auto">
+                  {dbStatusDetails.collections?.length > 0 ? (
+                    dbStatusDetails.collections.map((col: any) => (
+                      <div key={col.name} className="flex items-center justify-between px-3.5 py-2 text-sm">
+                        <span className="font-mono text-slate-200">{col.name}</span>
+                        <span className="text-xs text-slate-400">{col.count} docs</span>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="px-3.5 py-6 text-center text-sm text-slate-500">No collections yet.</div>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center justify-center gap-2 py-8 text-sm text-slate-400">
+                <RefreshCw className="h-4 w-4 animate-spin" />
+                Inspecting collections…
+              </div>
+            )}
           </div>
-        </div>
+        </Modal>
       )}
 
-      {/* BUILD LOGS MODAL */}
+      {/* Build logs */}
       {selectedBuildLogs && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-[#0A0D14] border border-slate-800 rounded-2xl w-full max-w-2xl p-6 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <div className="flex items-center space-x-2">
-                <Terminal className="w-5 h-5 text-cyan-400" />
-                <h3 className="text-base font-bold text-white">Flutter Compilation Logs</h3>
-              </div>
-              <button onClick={() => setSelectedBuildLogs(null)} className="text-slate-400 hover:text-white p-1">
-                ✕
-              </button>
-            </div>
-            <div className="bg-[#05070B] border border-slate-800 rounded-xl p-4 font-mono text-[11px] text-slate-300 space-y-1.5 max-h-80 overflow-y-auto">
-              {selectedBuildLogs.map((log, i) => (
-                <div key={i} className="text-slate-300 leading-relaxed">
-                  {log}
-                </div>
-              ))}
-            </div>
-            <div className="text-right pt-2 border-t border-slate-800">
-              <button
-                onClick={() => setSelectedBuildLogs(null)}
-                className="px-4 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold"
-              >
-                Close
-              </button>
-            </div>
+        <Modal
+          title="Build logs"
+          icon={Terminal}
+          width="max-w-2xl"
+          onClose={() => setSelectedBuildLogs(null)}
+          footer={
+            <button onClick={() => setSelectedBuildLogs(null)} className={BTN_PRIMARY}>
+              Close
+            </button>
+          }
+        >
+          <div className="max-h-80 space-y-1 overflow-y-auto rounded-lg border border-slate-800 bg-[#05070B] p-4 font-mono text-xs leading-relaxed text-slate-300">
+            {selectedBuildLogs.map((log, i) => (
+              <div key={i}>{log}</div>
+            ))}
           </div>
-        </div>
+        </Modal>
       )}
     </div>
   );

@@ -1,90 +1,76 @@
-import { NextResponse } from 'next/server';
-import { getMasterDatabase } from '@/lib/tenantMaster';
-import { updateTenant } from '@/lib/tenantMaster';
-import dns from 'dns/promises';
+import { getMasterDatabase, setTenantFields } from '@/lib/tenantMaster';
+import { requireAdmin, requestContext } from '@/lib/auth';
+import { recordAudit } from '@/lib/audit';
+import { errorResponse, fail, ok } from '@/lib/http';
+import { normalizeDomain } from '@/lib/security/validation';
+import { checkDomain } from '@/lib/security/domainVerify';
+import { systemDnsResolver } from '@/lib/security/dnsResolver';
 
 export const dynamic = 'force-dynamic';
 
-export async function POST(
-  request: Request,
-  { params }: { params: Promise<{ domain: string }> }
-) {
+/**
+ * Checks live DNS for a registered domain. "verified" requires BOTH the TXT ownership record and the
+ * routing record. SSL is reported as "pending": certificate issuance is a provider integration step
+ * and is not claimed as active here.
+ */
+export async function POST(request: Request, { params }: { params: Promise<{ domain: string }> }) {
   try {
-    const { domain } = await params;
-    const cleanDomain = decodeURIComponent(domain).toLowerCase().trim();
+    const auth = await requireAdmin(request);
+    if ('response' in auth) return auth.response;
+    const { domain: raw } = await params;
+    const domain = normalizeDomain(decodeURIComponent(raw));
 
     const db = await getMasterDatabase();
-    const domainRecord = await db.collection('domains').findOne({ domain: cleanDomain });
+    const record = await db.collection('domains').findOne({ domain });
+    if (!record) return fail('Domain not registered', 404);
 
-    if (!domainRecord) {
-      return NextResponse.json({ success: false, message: 'Domain record not found' }, { status: 404 });
-    }
+    const apexIps = (process.env.PLATFORM_APEX_IPS || '').split(',').map((s) => s.trim()).filter(Boolean);
+    const cnameTarget = process.env.PLATFORM_CNAME_TARGET;
+    if (!cnameTarget) return fail('PLATFORM_CNAME_TARGET is not configured on the server', 500);
 
-    let cnameResolved = false;
-    let txtResolved = false;
-    const diagnostics: string[] = [];
-
-    // 1. Check CNAME resolution
-    try {
-      const cnames = await dns.resolveCname(cleanDomain);
-      if (cnames.some((c) => c.includes('camsik-proxy.camsik.com') || c.includes('camsik'))) {
-        cnameResolved = true;
-        diagnostics.push(`CNAME resolved to ${cnames.join(', ')}`);
-      } else {
-        diagnostics.push(`CNAME points to ${cnames.join(', ')} (expected camsik-proxy.camsik.com)`);
-      }
-    } catch (cnameErr: any) {
-      diagnostics.push(`CNAME lookup error: ${cnameErr.code || cnameErr.message}`);
-    }
-
-    // 2. Check TXT resolution
-    try {
-      const txtRecords = await dns.resolveTxt(`_camsik-challenge.${cleanDomain}`);
-      const flattened = txtRecords.flat();
-      const expectedTxt = domainRecord.dnsRecords?.find((r: any) => r.type === 'TXT')?.value;
-      if (expectedTxt && flattened.includes(expectedTxt)) {
-        txtResolved = true;
-        diagnostics.push(`TXT challenge verified`);
-      } else {
-        diagnostics.push(`TXT records found: ${flattened.join(', ')}`);
-      }
-    } catch (txtErr: any) {
-      diagnostics.push(`TXT challenge lookup error: ${txtErr.code || txtErr.message}`);
-    }
-
-    // In local sandbox / testing environments, if DNS cannot resolve external names, allow simulation
-    const isVerified = cnameResolved || txtResolved || process.env.NODE_ENV === 'development';
-
-    const newStatus = isVerified ? 'active' : 'pending_dns';
-    const newSslStatus = isVerified ? 'active' : 'pending';
+    const check = await checkDomain(
+      { domain, txtToken: record.txtToken, cnameTarget, apexIps },
+      systemDnsResolver
+    );
+    const verified = check.ownershipVerified && check.routingVerified;
+    const now = new Date().toISOString();
 
     await db.collection('domains').updateOne(
-      { domain: cleanDomain },
+      { domain },
       {
         $set: {
-          status: newStatus,
-          sslStatus: newSslStatus,
-          verifiedAt: isVerified ? new Date().toISOString() : null,
-          diagnostics,
-          updatedAt: new Date().toISOString(),
+          status: verified ? 'verified' : 'pending_dns',
+          sslStatus: 'pending',
+          verifiedAt: verified ? now : null,
+          diagnostics: check.diagnostics,
+          lastCheckedAt: now,
         },
       }
     );
 
-    if (isVerified && domainRecord.tenantId) {
-      await updateTenant(domainRecord.tenantId, { customDomain: cleanDomain });
+    if (verified && record.isPrimary) {
+      await setTenantFields(record.tenantId, { customDomain: domain });
     }
 
-    return NextResponse.json({
-      success: true,
-      domain: cleanDomain,
-      verified: isVerified,
-      status: newStatus,
-      sslStatus: newSslStatus,
-      diagnostics,
+    await recordAudit({
+      action: 'domain.verify',
+      actor: auth.actor,
+      tenantId: record.tenantId,
+      tenantSlug: record.tenantSlug,
+      ctx: requestContext(request),
+      meta: { domain, verified },
     });
-  } catch (error: any) {
-    return NextResponse.json({ success: false, message: error?.message || 'Verification failed' }, { status: 500 });
+
+    return ok({
+      domain,
+      verified,
+      status: verified ? 'verified' : 'pending_dns',
+      sslStatus: 'pending',
+      ownershipVerified: check.ownershipVerified,
+      routingVerified: check.routingVerified,
+      diagnostics: check.diagnostics,
+    });
+  } catch (e) {
+    return errorResponse(e, 'domains.verify');
   }
 }
-

@@ -1,7 +1,8 @@
 import { Db, Collection, Document } from 'mongodb';
 import { getClientPromise } from './mongodb';
 import { Tenant } from './types';
-import { getTenantBySlugOrId, updateTenant } from './tenantMaster';
+import { setTenantFields } from './tenantMaster';
+import { isValidTenantDbName } from './security/validation';
 import {
   categories as defaultCategories,
   brands as defaultBrands,
@@ -11,19 +12,15 @@ import {
 import { THEMES_REGISTRY } from './themesRegistry';
 
 /**
- * Returns the dedicated MongoDB database instance for a specific tenant.
- * Uses the tenant's configured `dbName`.
+ * Returns the dedicated MongoDB database for a tenant. Accepts the Tenant record itself, or a dbName
+ * that must match the tenant database naming pattern. The database name is never resolved from
+ * caller-supplied slugs or domains, so a request cannot point at another tenant's data.
  */
-export async function getTenantDatabase(tenantSlugOrDbName: string): Promise<Db> {
-  let dbName = tenantSlugOrDbName;
-
-  if (!tenantSlugOrDbName.startsWith('casmik_tenant_')) {
-    const tenant = await getTenantBySlugOrId(tenantSlugOrDbName);
-    if (tenant && tenant.dbName) {
-      dbName = tenant.dbName;
-    }
+export async function getTenantDatabase(tenantOrDbName: Pick<Tenant, 'dbName'> | string): Promise<Db> {
+  const dbName = typeof tenantOrDbName === 'string' ? tenantOrDbName : tenantOrDbName.dbName;
+  if (!isValidTenantDbName(dbName)) {
+    throw new Error(`Refusing to open non-tenant database '${dbName}'`);
   }
-
   const client = await getClientPromise();
   return client.db(dbName);
 }
@@ -33,9 +30,9 @@ export async function getTenantDatabase(tenantSlugOrDbName: string): Promise<Db>
  */
 export async function getTenantCollection<T extends Document = Document>(
   collectionName: string,
-  tenantSlugOrDbName: string
+  tenantOrDbName: Pick<Tenant, 'dbName'> | string
 ): Promise<Collection<T>> {
-  const db = await getTenantDatabase(tenantSlugOrDbName);
+  const db = await getTenantDatabase(tenantOrDbName);
   return db.collection<T>(collectionName);
 }
 
@@ -46,7 +43,7 @@ export async function getTenantCollection<T extends Document = Document>(
  */
 export async function provisionTenantDatabase(
   tenant: Tenant,
-  adminDetails?: { email: string; name?: string; passwordHash?: string; inviteToken?: string }
+  adminDetails?: { email: string; name?: string; inviteTokenHash?: string; inviteExpiresAt?: string }
 ): Promise<{
   success: boolean;
   message: string;
@@ -59,9 +56,11 @@ export async function provisionTenantDatabase(
     const theme = THEMES_REGISTRY.find((t) => t.id === tenant.templateId) || THEMES_REGISTRY[0];
 
     // 1. Settings Collection
+    // Upsert, never delete: re-provisioning must not wipe settings the tenant has changed.
     const settingsCol = db.collection('settings');
-    await settingsCol.deleteMany({});
-    await settingsCol.insertOne({
+    // Seeded once. Re-provisioning never overwrites values the tenant has changed since.
+    await settingsCol.updateOne({ _singleton: true }, { $setOnInsert: {
+      createdAt: new Date().toISOString(),
       tenantId: tenant.id,
       tenantSlug: tenant.slug,
       templateId: tenant.templateId,
@@ -86,7 +85,7 @@ export async function provisionTenantDatabase(
       },
       provisionedAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
-    });
+    } }, { upsert: true });
 
     // 2. Categories Collection
     const categoriesCol = db.collection('categories');
@@ -201,17 +200,20 @@ export async function provisionTenantDatabase(
     let seededUsersCount = existingUsersCount;
     if (existingUsersCount === 0) {
       const adminEmail = adminDetails?.email || tenant.branding?.supportEmail || `admin@${tenant.slug}.com`;
+      // No password is ever accepted from the control plane. The owner sets their own password in the
+      // tenant setup wizard, using a single-use invite token that is stored only as a hash.
       const initialAdmin = {
         id: `usr-${tenant.slug}-admin-01`,
         name: adminDetails?.name || `${tenant.name} Administrator`,
         email: adminEmail,
-        phone: tenant.branding?.supportPhone || '+91 98000 00000',
+        phone: tenant.branding?.supportPhone || '',
         role: 'owner',
-        status: 'active',
+        status: 'pending_setup',
         tenantId: tenant.id,
-        inviteToken: adminDetails?.inviteToken || null,
-        passwordHash: adminDetails?.passwordHash || null, // Will trigger setup wizard if null
-        emailVerified: Boolean(adminDetails?.passwordHash),
+        inviteTokenHash: adminDetails?.inviteTokenHash || null,
+        inviteExpiresAt: adminDetails?.inviteExpiresAt || null,
+        passwordHash: null,
+        emailVerified: false,
         createdAt: new Date().toISOString(),
       };
       await usersCol.insertOne(initialAdmin as any);
@@ -282,7 +284,7 @@ export async function provisionTenantDatabase(
     await ridersCol.createIndex({ status: 1 });
 
     // Mark as provisioned in master tenant registry
-    await updateTenant(tenant.id, { dbProvisioned: true });
+    await setTenantFields(tenant.id, { dbProvisioned: true });
 
     return {
       success: true,

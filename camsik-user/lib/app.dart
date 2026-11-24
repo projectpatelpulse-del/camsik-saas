@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'core/config/tenant_config.dart';
+import 'core/config/tenant_theme.dart';
 import 'core/services/api_service.dart';
 import 'modules/auth/bloc/auth_cubit.dart';
 import 'modules/home/bloc/home_cubit.dart';
@@ -156,61 +158,10 @@ class _CamsikUserAppState extends State<CamsikUserApp> {
       ],
       child: MaterialApp(
         scaffoldMessengerKey: scaffoldMessengerKey,
-        title: 'Camsik User',
+        title: TenantConfig.current.brandName,
         debugShowCheckedModeBanner: false,
         onGenerateRoute: AppRoutes.onGenerateRoute,
-        theme: ThemeData(
-          useMaterial3: true,
-          fontFamily: 'Roboto',
-          colorScheme: ColorScheme.fromSeed(
-            seedColor: const Color(0xFF059669), // Camsik Emerald
-            primary: const Color(0xFF059669),
-            secondary: const Color(0xFF4F46E5), // Electric Indigo
-            surface: const Color(0xFFF8FAFC),
-            brightness: Brightness.light,
-          ),
-          scaffoldBackgroundColor: const Color(0xFFF8FAFC),
-          cardTheme: const CardThemeData(
-            elevation: 0,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.all(Radius.circular(20)),
-            ),
-            color: Colors.white,
-          ),
-          inputDecorationTheme: InputDecorationTheme(
-            filled: true,
-            fillColor: const Color(0xFFF8FAFC),
-            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(14),
-              borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
-            ),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(14),
-              borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(14),
-              borderSide: const BorderSide(color: Color(0xFF059669), width: 1.8),
-            ),
-            hintStyle: const TextStyle(color: Color(0xFF94A3B8), fontSize: 13),
-          ),
-          elevatedButtonTheme: ElevatedButtonThemeData(
-            style: ElevatedButton.styleFrom(
-              elevation: 0,
-              backgroundColor: const Color(0xFF059669),
-              foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-              textStyle: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
-            ),
-          ),
-          appBarTheme: const AppBarTheme(
-            backgroundColor: Color(0xFF0F172A),
-            foregroundColor: Colors.white,
-            elevation: 0,
-          ),
-        ),
+        theme: buildTenantTheme(TenantConfig.current),
         home: _isLoggedIn
             ? UserMainNavigationScreen(
                 userProfile: _userProfile,

@@ -1,85 +1,97 @@
-import { NextResponse } from 'next/server';
-import { getTenantBySlugOrId, updateTenant, deleteTenant } from '@/lib/tenantMaster';
-import { getTenantDatabaseStatus } from '@/lib/tenantDb';
+import { getTenantBySlugOrId, updateTenant, deleteTenant, getMasterDatabase, NotFoundError } from '@/lib/tenantMaster';
+import { getTenantDatabaseStatus, getTenantDatabase } from '@/lib/tenantDb';
+import { requireAdmin, requestContext } from '@/lib/auth';
+import { recordAudit } from '@/lib/audit';
+import { errorResponse, fail, ok, readJson } from '@/lib/http';
+import { ValidationError } from '@/lib/security/validation';
 
 export const dynamic = 'force-dynamic';
 
-export async function GET(
-  request: Request,
-  { params }: { params: Promise<{ id: string }> }
-) {
+type Params = { params: Promise<{ id: string }> };
+
+export async function GET(request: Request, { params }: Params) {
   try {
+    const auth = await requireAdmin(request);
+    if ('response' in auth) return auth.response;
     const { id } = await params;
     const client = await getTenantBySlugOrId(id);
+    if (!client) return fail('Client not found', 404);
 
-    if (!client) {
-      return NextResponse.json(
-        { success: false, message: 'Client not found' },
-        { status: 404 }
-      );
+    const database = await getTenantDatabaseStatus(client);
+    const domains = await (await getMasterDatabase()).collection('domains').find({ tenantId: client.id }).toArray();
+    return ok({ client, database, domains });
+  } catch (e) {
+    return errorResponse(e, 'clients.get');
+  }
+}
+
+/** Partial update. Only allowlisted fields are applied (see sanitizeTenantUpdate). */
+export async function PUT(request: Request, { params }: Params) {
+  try {
+    const auth = await requireAdmin(request);
+    if ('response' in auth) return auth.response;
+    const { id } = await params;
+    const client = await getTenantBySlugOrId(id);
+    if (!client) return fail('Client not found', 404);
+
+    const body = await readJson(request);
+    const updated = await updateTenant(client.id, body);
+    if (!updated) return fail('Client not found or update failed', 404);
+
+    await recordAudit({
+      action: 'tenant.update',
+      actor: auth.actor,
+      tenantId: client.id,
+      tenantSlug: client.slug,
+      ctx: requestContext(request),
+      meta: { fields: Object.keys(body) },
+    });
+    return ok({ message: 'Client updated successfully', client: updated });
+  } catch (e) {
+    return errorResponse(e, 'clients.update');
+  }
+}
+
+/**
+ * Permanent delete. Requires the tenant to be suspended or inactive first, the slug typed back as
+ * confirmation, and optionally drops the tenant database (`dropDatabase: true`). Audit is written
+ * before anything is removed.
+ */
+export async function DELETE(request: Request, { params }: Params) {
+  try {
+    const auth = await requireAdmin(request);
+    if ('response' in auth) return auth.response;
+    const { id } = await params;
+    const client = await getTenantBySlugOrId(id);
+    if (!client) return fail('Client not found', 404);
+
+    const body = await readJson(request).catch(() => ({} as Record<string, unknown>));
+    if (body.confirmSlug !== client.slug) {
+      throw new ValidationError(`Type the client slug '${client.slug}' to confirm deletion`, { confirmSlug: 'mismatch' });
+    }
+    if (client.status !== 'suspended' && client.status !== 'inactive') {
+      return fail('Suspend or deactivate the client before deleting it', 409);
     }
 
-    const dbStatus = await getTenantDatabaseStatus(client);
-
-    return NextResponse.json({
-      success: true,
-      client,
-      database: dbStatus,
+    const ctx = requestContext(request);
+    await recordAudit({
+      action: 'tenant.delete',
+      actor: auth.actor,
+      tenantId: client.id,
+      tenantSlug: client.slug,
+      ctx,
+      meta: { dropDatabase: body.dropDatabase === true, dbName: client.dbName },
     });
-  } catch (error: any) {
-    return NextResponse.json(
-      { success: false, message: error?.message || 'Failed to fetch client' },
-      { status: 500 }
-    );
-  }
-}
 
-export async function PUT(
-  request: Request,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const { id } = await params;
-    const body = await request.json();
-
-    const updated = await updateTenant(id, body);
-    if (!updated) {
-      return NextResponse.json(
-        { success: false, message: 'Client not found or update failed' },
-        { status: 404 }
-      );
+    if (body.dropDatabase === true) {
+      await (await getTenantDatabase(client)).dropDatabase();
     }
+    await (await getMasterDatabase()).collection('domains').deleteMany({ tenantId: client.id });
+    const removed = await deleteTenant(client.id);
+    if (!removed) throw new NotFoundError('Client was already deleted');
 
-    return NextResponse.json({
-      success: true,
-      message: 'Client updated successfully',
-      client: updated,
-    });
-  } catch (error: any) {
-    return NextResponse.json(
-      { success: false, message: error?.message || 'Failed to update client' },
-      { status: 500 }
-    );
+    return ok({ message: `Client '${client.name}' deleted`, databaseDropped: body.dropDatabase === true });
+  } catch (e) {
+    return errorResponse(e, 'clients.delete');
   }
 }
-
-export async function DELETE(
-  request: Request,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const { id } = await params;
-    const success = await deleteTenant(id);
-
-    return NextResponse.json({
-      success,
-      message: success ? 'Client deleted successfully' : 'Client deletion failed',
-    });
-  } catch (error: any) {
-    return NextResponse.json(
-      { success: false, message: error?.message || 'Failed to delete client' },
-      { status: 500 }
-    );
-  }
-}
-

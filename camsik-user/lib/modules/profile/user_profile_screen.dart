@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../core/config/tenant_config.dart';
 import '../../models/user_order.dart';
 import '../../models/user_profile.dart';
 import 'screens/customer_support_screen.dart';
@@ -280,7 +281,7 @@ class UserProfileWidget extends StatelessWidget {
             context,
             icon: Icons.support_agent_outlined,
             title: 'Customer Support',
-            subtitle: 'WhatsApp: +91 8976000010',
+            subtitle: 'WhatsApp: ${TenantConfig.current.contactPhone}',
             onTap: () {
               Navigator.push(
                 context,

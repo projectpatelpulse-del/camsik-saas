@@ -82,7 +82,7 @@ export default function TenantCreationWizard({ isOpen, onClose, onSuccess }: Wiz
   });
 
   // Step 4: Client Administrator Setup
-  const [adminType, setAdminType] = useState<'direct' | 'invite'>('direct');
+  const [adminType, setAdminType] = useState<'invite'>('invite');
   const [adminData, setAdminData] = useState({
     name: '',
     email: '',
@@ -182,12 +182,10 @@ export default function TenantCreationWizard({ isOpen, onClose, onSuccess }: Wiz
           customDomainEnabled: true,
           priceMonthly: 7999,
         },
-        adminDetails: {
-          name: adminData.name || `${businessData.name} Admin`,
-          email: adminData.email || businessData.companyEmail,
-          passwordHash: adminType === 'direct' ? (adminData.password ? `demo_hash_${adminData.password}` : 'admin123') : undefined,
-          inviteToken: adminType === 'invite' ? `inv_${Math.random().toString(36).substring(2, 12)}` : undefined,
-        },
+        // The owner always sets their own password through a single-use invite. The control plane never
+        // sets or sees client passwords.
+        adminEmail: adminData.email || businessData.companyEmail,
+        adminName: adminData.name || `${businessData.name} Admin`,
         autoProvision: true,
       };
 
@@ -567,18 +565,6 @@ export default function TenantCreationWizard({ isOpen, onClose, onSuccess }: Wiz
 
               <div className="grid grid-cols-2 gap-4">
                 <div
-                  onClick={() => setAdminType('direct')}
-                  className={`p-4 rounded-xl border cursor-pointer transition ${
-                    adminType === 'direct'
-                      ? 'bg-emerald-500/10 border-emerald-500 text-white'
-                      : 'bg-[#121827] border-slate-800 text-slate-400'
-                  }`}
-                >
-                  <div className="font-semibold text-xs mb-1">Direct Administrator Credentials</div>
-                  <div className="text-[11px] text-slate-400">Super Admin sets initial administrator email and password directly.</div>
-                </div>
-
-                <div
                   onClick={() => setAdminType('invite')}
                   className={`p-4 rounded-xl border cursor-pointer transition ${
                     adminType === 'invite'
@@ -612,18 +598,6 @@ export default function TenantCreationWizard({ isOpen, onClose, onSuccess }: Wiz
                   />
                 </div>
 
-                {adminType === 'direct' && (
-                  <div>
-                    <label className="block text-xs font-medium text-slate-300 mb-1.5">Initial Administrator Password</label>
-                    <input
-                      type="password"
-                      placeholder="••••••••••••"
-                      value={adminData.password}
-                      onChange={(e) => setAdminData({ ...adminData, password: e.target.value })}
-                      className="w-full bg-[#0A0D15] border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-emerald-500 font-mono"
-                    />
-                  </div>
-                )}
               </div>
             </div>
           )}
